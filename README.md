@@ -342,7 +342,7 @@ Watch AI play with mathematically optimal strategy!
 
 ### 🃏 The Developers 🃏
 
-| <img src="https://github.com/gayagur.png" width="120" style="border-radius:50%"> | <img src="https://github.com/matiasguernik.png" width="120" style="border-radius:50%"> |
+| <img src="https://github.com/gayagur.png" width="120" style="border-radius:50%"> | <img src="https://github.com/matiasg5.png" width="120" style="border-radius:50%"> |
 |:---:|:---:|
 | **Gaya Gur** | **Matias Guernik** |
 | [![GitHub](https://img.shields.io/badge/GitHub-gayagur-black?style=for-the-badge&logo=github)](https://github.com/gayagur) | [![GitHub](https://img.shields.io/badge/GitHub-matiasg5-black?style=for-the-badge&logo=github)](https://github.com/matiasg5) |
