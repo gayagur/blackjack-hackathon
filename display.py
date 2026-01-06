@@ -388,4 +388,3 @@ def print_goodbye():
     print(f"{MAGENTA}║{RESET}{'👋 Thanks for playing! Goodbye! 👋'.center(BOX_WIDTH)}{MAGENTA}║{RESET}")
     print(f"{MAGENTA}║{RESET}{' ' * BOX_WIDTH}{MAGENTA}║{RESET}")
     print(f"{MAGENTA}╚{'═' * BOX_WIDTH}╝{RESET}\n")
-

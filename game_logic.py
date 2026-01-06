@@ -124,7 +124,7 @@ def calculate_hand_value(cards: list) -> int:
     No conversion to 1 is performed.
     
     Args:
-        cards: List of Card objects representing the hand
+        cards: List of Card objects representing the hand (None values are ignored)
     
     Returns:
         int: Total hand value (Aces always counted as 11)
@@ -132,8 +132,8 @@ def calculate_hand_value(cards: list) -> int:
     if not cards:
         return 0
     
-    # Sum all card values - Ace is always 11 according to spec
-    total = sum(card.get_value() for card in cards)
+    # Filter out None values and sum all card values - Ace is always 11 according to spec
+    total = sum(card.get_value() for card in cards if card is not None)
     
     return total
 

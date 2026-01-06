@@ -254,6 +254,9 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
     print_message("Receiving dealer's card...", "receive")
     result, dealer_visible_card = receive_card(tcp_socket)
     dealer_hand.append(dealer_visible_card)
+    # Add a placeholder for the hidden card so we can display it as hidden
+    # We'll use None as a placeholder - print_cards_row will handle it
+    dealer_hand.append(None)  # Placeholder for hidden card
     time.sleep(0.3)
     print_message(f"Dealer shows: {dealer_visible_card}", "info")
     
@@ -327,14 +330,17 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
         
         # Only add card if round is still in progress (not a dummy card)
         if result == RESULT_NOT_OVER:
-            # Check if this is the first dealer card we're receiving (the hidden one)
-            if len(dealer_hand) == 1:
+            # Check if this is the hidden card we're receiving (replacing the None placeholder)
+            if len(dealer_hand) == 2 and dealer_hand[1] is None:
+                # Replace the None placeholder with the actual hidden card
+                dealer_hand[1] = card
                 print_message(f"Dealer reveals: {card}", "info")
             else:
+                # Additional cards after reveal
+                dealer_hand.append(card)
                 print_message(f"Dealer draws: {card}", "info")
-            dealer_hand.append(card)
             time.sleep(0.5)  # Dramatic effect
-            # Update display - show all cards now
+            # Update display - show all cards now (no more hiding)
             print_game_state(my_hand, dealer_hand, hide_dealer_card=False)
         else:
             # Result received, this is a dummy card - don't add it to dealer_hand
@@ -342,7 +348,9 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
     
     # SHOW RESULT
     my_value = calculate_hand_value(my_hand)
-    dealer_value = calculate_hand_value(dealer_hand)
+    # Filter out None placeholders before calculating dealer value
+    visible_dealer_cards = [c for c in dealer_hand if c is not None]
+    dealer_value = calculate_hand_value(visible_dealer_cards)
     dealer_bust = dealer_value > 21
     
     # Track dealer busts
