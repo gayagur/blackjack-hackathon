@@ -316,7 +316,6 @@ The game tracks comprehensive statistics for each session:
 
 <div align="center">
 
-| <img src="https://github.com/identicons/gayagur.png" width="100"> | <img src="https://github.com/identicons/matiasguernik.png" width="100"> |
 |:---:|:---:|
 | **Gaya Gur** | **Matias Guernik** |
 | Developer | Developer |
