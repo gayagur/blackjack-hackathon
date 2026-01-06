@@ -15,9 +15,7 @@ from constants import (
     RESULT_NOT_OVER,
     RESULT_TIE,
     RESULT_LOSS,
-    RESULT_WIN,
-    SUITS,
-    RANKS
+    RESULT_WIN
 )
 from protocol import (
     parse_offer_packet,
@@ -28,320 +26,33 @@ from protocol import (
 from game_logic import (
     Card,
     calculate_hand_value,
-    is_bust,
-    format_hand
+    is_bust
+)
+from display import (
+    print_welcome,
+    print_server_menu,
+    print_round_header,
+    print_game_state,
+    print_decision_prompt,
+    print_result,
+    print_bust,
+    print_stats,
+    print_interesting_stats,
+    print_message,
+    print_goodbye,
+    RED,
+    GREEN,
+    YELLOW,
+    BLUE,
+    MAGENTA,
+    CYAN,
+    RESET
 )
 
-# Color constants
-RED = "\033[91m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-BLUE = "\033[94m"
-MAGENTA = "\033[95m"
-CYAN = "\033[96m"
-RESET = "\033[0m"
-
 
 # ============================================================================
-# Visual Helper Functions
+# Network and Game Functions
 # ============================================================================
-
-def clear_screen():
-    """Clear the terminal screen"""
-    print("\033[2J\033[H", end="")
-
-
-def get_card_art(card: Card, hidden: bool = False):
-    """
-    Returns list of strings representing card ASCII art.
-    
-    Args:
-        card: Card object
-        hidden: If True, return hidden card art
-    
-    Returns:
-        list: List of strings representing the card
-    """
-    if hidden:
-        return [
-            "┌─────────┐",
-            "│░░░░░░░░░│",
-            "│░░░░░░░░░│",
-            "│░░░░░░░░░│",
-            "│░░░░░░░░░│",
-            "│░░░░░░░░░│",
-            "└─────────┘"
-        ]
-    
-    rank_str = RANKS.get(card.rank, str(card.rank))
-    suit_str = SUITS.get(card.suit, '?')
-    
-    # Determine suit color (red for hearts/diamonds, white for clubs/spades)
-    if card.suit in (0, 1):  # Heart or Diamond
-        suit_color = RED
-    else:  # Club or Spade
-        suit_color = RESET
-    
-    # Pad rank for alignment
-    if len(rank_str) == 2:  # "10"
-        r = rank_str
-        r_right = rank_str
-    else:  # Single character
-        r = rank_str + " "
-        r_right = " " + rank_str
-    
-    return [
-        "┌─────────┐",
-        f"│ {r}      │",
-        "│         │",
-        f"│    {suit_color}{suit_str}{RESET}    │",
-        "│         │",
-        f"│      {r_right} │",
-        "└─────────┘"
-    ]
-
-
-def print_cards_side_by_side(cards: list, hidden_count: int = 0, indent: int = 5):
-    """
-    Print multiple cards side by side.
-    
-    Args:
-        cards: List of Card objects
-        hidden_count: Number of hidden cards to show at the end
-        indent: Number of spaces to indent (default 5 for box alignment)
-    """
-    card_arts = []
-    
-    # Add visible cards
-    for card in cards:
-        card_arts.append(get_card_art(card))
-    
-    # Add hidden cards
-    for _ in range(hidden_count):
-        card_arts.append(get_card_art(None, hidden=True))
-    
-    if not card_arts:
-        return
-    
-    # All cards have same height (7 lines)
-    height = len(card_arts[0])
-    
-    for row in range(height):
-        line = "  ".join(card_art[row] for card_art in card_arts)
-        print(f"{' ' * indent}{line}")
-
-
-def print_welcome():
-    """Print beautiful welcome screen"""
-    print(f"\n{MAGENTA}")
-    print("""
-    ╔═══════════════════════════════════════════════════════════════════╗
-    ║                                                                   ║
-    ║     ███████╗██╗      █████╗  ██████╗██╗  ██╗     ██╗ █████╗  ██████╗██╗  ██╗   ║
-    ║     ██╔══██║██║     ██╔══██╗██╔════╝██║ ██╔╝     ██║██╔══██╗██╔════╝██║ ██╔╝   ║
-    ║     ███████║██║     ███████║██║     █████╔╝      ██║███████║██║     █████╔╝    ║
-    ║     ██╔══██║██║     ██╔══██║██║     ██╔═██╗ ██   ██║██╔══██║██║     ██╔═██╗    ║
-    ║     ██████╔╝███████╗██║  ██║╚██████╗██║  ██╗╚█████╔╝██║  ██║╚██████╗██║  ██╗   ║
-    ║     ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝   ║
-    ║                                                                   ║
-    ║                  ♠ ♥ ♣ ♦  WELCOME TO THE CASINO  ♦ ♣ ♥ ♠                  ║
-    ║                                                                   ║
-    ╚═══════════════════════════════════════════════════════════════════╝
-    """)
-    print(f"{RESET}\n")
-
-
-def print_box(title: str, content: list, color: str = MAGENTA):
-    """
-    Print content in a nice box.
-    
-    Args:
-        title: Box title
-        content: List of content lines
-        color: Color for the box
-    """
-    width = 60
-    print(f"\n{color}╔{'═' * width}╗{RESET}")
-    print(f"{color}║{title.center(width)}║{RESET}")
-    print(f"{color}╠{'═' * width}╣{RESET}")
-    print(f"{color}║{' ' * width}║{RESET}")
-    
-    for line in content:
-        # Truncate if too long
-        if len(line) > width - 4:
-            line = line[:width - 7] + "..."
-        print(f"{color}║{RESET}  {line.ljust(width - 4)}{color}║{RESET}")
-    
-    print(f"{color}║{' ' * width}║{RESET}")
-    print(f"{color}╚{'═' * width}╝{RESET}\n")
-
-
-def print_result_screen(result: int, player_value: int, dealer_value: int, player_bust: bool = False, dealer_bust: bool = False):
-    """
-    Print the win/lose/tie/bust screen.
-    
-    Args:
-        result: RESULT_WIN, RESULT_LOSS, or RESULT_TIE
-        player_value: Player's hand value
-        dealer_value: Dealer's hand value
-        player_bust: True if player busted
-        dealer_bust: True if dealer busted
-    """
-    width = 60
-    
-    if player_bust:
-        print(f"\n{RED}╔{'═' * width}╗{RESET}")
-        print(f"{RED}║{' ' * width}║{RESET}")
-        print(f"{RED}║{'💥 B U S T ! 💥   You went over 21!'.center(width)}║{RESET}")
-        print(f"{RED}║{' ' * width}║{RESET}")
-        print(f"{RED}║{f'Your hand: {player_value}'.center(width)}║{RESET}")
-        print(f"{RED}║{' ' * width}║{RESET}")
-        print(f"{RED}╚{'═' * width}╝{RESET}\n")
-        return
-    
-    if dealer_bust:
-        print(f"\n{GREEN}╔{'═' * width}╗{RESET}")
-        print(f"{GREEN}║{' ' * width}║{RESET}")
-        print(f"{GREEN}║{'🎉 DEALER BUSTS! 🎉   Dealer went over 21!'.center(width)}║{RESET}")
-        print(f"{GREEN}║{' ' * width}║{RESET}")
-        print(f"{GREEN}║{f'Dealer\'s hand: {dealer_value}  |  You WIN!'.center(width)}║{RESET}")
-        print(f"{GREEN}║{' ' * width}║{RESET}")
-        print(f"{GREEN}╚{'═' * width}╝{RESET}\n")
-        return
-    
-    if result == RESULT_WIN:
-        print(f"\n{GREEN}╔{'═' * width}╗{RESET}")
-        print(f"{GREEN}║{' ' * width}║{RESET}")
-        print(f"{GREEN}║{'🎉🎉🎉   Y O U   W I N !   🎉🎉🎉'.center(width)}║{RESET}")
-        print(f"{GREEN}║{' ' * width}║{RESET}")
-        print(f"{GREEN}║{f'Your hand: {player_value}  |  Dealer: {dealer_value}'.center(width)}║{RESET}")
-        print(f"{GREEN}║{' ' * width}║{RESET}")
-        print(f"{GREEN}║{' ' * 20}+ 1 WIN{' ' * 30}║{RESET}")
-        print(f"{GREEN}║{' ' * width}║{RESET}")
-        print(f"{GREEN}╚{'═' * width}╝{RESET}\n")
-    elif result == RESULT_LOSS:
-        print(f"\n{RED}╔{'═' * width}╗{RESET}")
-        print(f"{RED}║{' ' * width}║{RESET}")
-        print(f"{RED}║{'😞😞😞   Y O U   L O S E   😞😞😞'.center(width)}║{RESET}")
-        print(f"{RED}║{' ' * width}║{RESET}")
-        print(f"{RED}║{f'Your hand: {player_value}  |  Dealer: {dealer_value}'.center(width)}║{RESET}")
-        print(f"{RED}║{' ' * width}║{RESET}")
-        print(f"{RED}╚{'═' * width}╝{RESET}\n")
-    elif result == RESULT_TIE:
-        print(f"\n{YELLOW}╔{'═' * width}╗{RESET}")
-        print(f"{YELLOW}║{' ' * width}║{RESET}")
-        print(f"{YELLOW}║{'🤝🤝🤝   T I E !   🤝🤝🤝'.center(width)}║{RESET}")
-        print(f"{YELLOW}║{' ' * width}║{RESET}")
-        print(f"{YELLOW}║{f'Your hand: {player_value}  |  Dealer: {dealer_value}'.center(width)}║{RESET}")
-        print(f"{YELLOW}║{' ' * width}║{RESET}")
-        print(f"{YELLOW}╚{'═' * width}╝{RESET}\n")
-
-
-def print_stats(wins: int, losses: int, ties: int, total: int):
-    """Print statistics in a nice box"""
-    total_played = wins + losses + ties
-    win_rate = (wins / total_played * 100) if total_played > 0 else 0
-    
-    content = [
-        f"Rounds Played:  {total_played}",
-        "────────────────────",
-        f"✅ Wins:         {wins}",
-        f"❌ Losses:       {losses}",
-        f"🤝 Ties:         {ties}",
-        "────────────────────",
-        f"📈 Win Rate:     {win_rate:.1f}%"
-    ]
-    
-    print_box("📊 GAME STATISTICS", content, CYAN)
-
-
-def print_interesting_stats(stats: dict):
-    """Print interesting statistics in a nice box"""
-    content = [
-        f"🔥 Longest Win Streak:  {stats.get('longest_win_streak', 0)}",
-        f"📉 Longest Lose Streak: {stats.get('longest_lose_streak', 0)}",
-        f"💥 Biggest Bust:        {stats.get('biggest_bust', 0)}",
-        f"🎯 Blackjacks:          {stats.get('blackjacks', 0)}",
-        f"💀 Dealer Busts:        {stats.get('dealer_busts', 0)}",
-        f"📈 Avg Hand Value:      {stats.get('avg_hand_value', 0):.1f}",
-        f"👊 Total Hits:          {stats.get('total_hits', 0)}",
-        f"🛑 Total Stands:        {stats.get('total_stands', 0)}"
-    ]
-    
-    print_box("📊 INTERESTING STATS", content, CYAN)
-
-
-def print_round_header(round_num: int, total_rounds: int):
-    """Print round header"""
-    width = 60
-    title = f"🎰 ROUND {round_num} of {total_rounds} 🎰"
-    print(f"\n{MAGENTA}╔{'═' * width}╗{RESET}")
-    print(f"{MAGENTA}║{title.center(width)}║{RESET}")
-    print(f"{MAGENTA}╚{'═' * width}╝{RESET}\n")
-
-
-def print_hit_stand_prompt():
-    """Print hit/stand prompt in a nice box"""
-    print(f"\n{CYAN}┌────────────────────────────────────┐{RESET}")
-    print(f"{CYAN}│{RESET}  Your move:                        {CYAN}│{RESET}")
-    print(f"{CYAN}│{RESET}                                    {CYAN}│{RESET}")
-    print(f"{CYAN}│{RESET}    [H] 👊 HIT  - Draw another card {CYAN}│{RESET}")
-    print(f"{CYAN}│{RESET}    [S] 🛑 STAND - Keep your hand   {CYAN}│{RESET}")
-    print(f"{CYAN}│{RESET}                                    {CYAN}│{RESET}")
-    print(f"{CYAN}└────────────────────────────────────┘{RESET}\n")
-
-
-def print_game_state_ascii(my_hand: list, dealer_hand: list = None, dealer_visible_count: int = 1):
-    """
-    Display current game state with ASCII art cards.
-    
-    Args:
-        my_hand: List of Card objects in player's hand
-        dealer_hand: Full list of dealer's cards (optional)
-        dealer_visible_count: Number of dealer cards to show (rest hidden)
-    """
-    width = 60
-    
-    print(f"\n{MAGENTA}╔{'═' * width}╗{RESET}")
-    print(f"{MAGENTA}║{'DEALER\'S HAND'.center(width)}║{RESET}")
-    print(f"{MAGENTA}╠{'═' * width}╣{RESET}")
-    print(f"{MAGENTA}║{' ' * width}║{RESET}")
-    
-    # Show dealer's hand
-    if dealer_hand is not None and len(dealer_hand) > 0:
-        dealer_value = calculate_hand_value(dealer_hand)
-        hidden_count = len(dealer_hand) - dealer_visible_count if dealer_visible_count < len(dealer_hand) else 0
-        visible_cards = dealer_hand[:dealer_visible_count] if dealer_visible_count <= len(dealer_hand) else dealer_hand
-        
-        # Print cards inside the box
-        print_cards_side_by_side(visible_cards, hidden_count, indent=5)
-        # Calculate padding for value line (accounting for ANSI codes)
-        value_text = f"{BLUE}Value: {dealer_value}{RESET}"
-        # Remove ANSI codes for length calculation
-        clean_text = f"Value: {dealer_value}"
-        padding = width - len(clean_text) - 4
-        print(f"{MAGENTA}║{RESET}  {value_text}{' ' * padding}{MAGENTA}║{RESET}")
-    else:
-        print(f"{MAGENTA}║{' ' * width}║{RESET}")
-    
-    print(f"{MAGENTA}║{' ' * width}║{RESET}")
-    print(f"{MAGENTA}╠{'═' * width}╣{RESET}")
-    print(f"{MAGENTA}║{'YOUR HAND'.center(width)}║{RESET}")
-    print(f"{MAGENTA}╠{'═' * width}╣{RESET}")
-    print(f"{MAGENTA}║{' ' * width}║{RESET}")
-    
-    # Show player's hand
-    my_value = calculate_hand_value(my_hand)
-    print_cards_side_by_side(my_hand, indent=5)
-    # Calculate padding for value line (accounting for ANSI codes)
-    value_text = f"{GREEN}Value: {my_value}{RESET}"
-    # Remove ANSI codes for length calculation
-    clean_text = f"Value: {my_value}"
-    padding = width - len(clean_text) - 4
-    print(f"{MAGENTA}║{RESET}  {value_text}{' ' * padding}{MAGENTA}║{RESET}")
-    
-    print(f"{MAGENTA}║{' ' * width}║{RESET}")
-    print(f"{MAGENTA}╚{'═' * width}╝{RESET}\n")
 
 
 # ============================================================================
@@ -356,7 +67,7 @@ def listen_for_offers() -> tuple:
         tuple: (server_ip, tcp_port, server_name) or None
     """
     while True:  # Loop allows rescanning
-        print(f"\n{CYAN}[🔍] Scanning for servers...{RESET}")
+        print_message("Scanning for servers...", "search")
         
         # Dictionary to store found servers: {server_name: (ip, tcp_port)}
         servers = {}
@@ -385,7 +96,7 @@ def listen_for_offers() -> tuple:
                     
                     # Only print if we haven't seen this server before
                     if server_name not in servers:
-                        print(f"  {GREEN}[✅] Found: {server_name}{RESET} at {server_ip}")
+                        print_message(f"Found: {server_name} at {server_ip}", "success")
                     
                     # Store/update server info
                     servers[server_name] = (server_ip, tcp_port)
@@ -399,7 +110,7 @@ def listen_for_offers() -> tuple:
         
         # Check if any servers were found
         if not servers:
-            print(f"\n{RED}No servers found!{RESET}")
+            print_message("No servers found!", "error")
             retry = input(f"{YELLOW}Try again? (y/n): {RESET}").strip().lower()
             if retry == 'y':
                 continue
@@ -407,23 +118,8 @@ def listen_for_offers() -> tuple:
                 return None
         
         # Display server selection menu
-        width = 60
-        print(f"\n{MAGENTA}╔{'═' * width}╗{RESET}")
-        print(f"{MAGENTA}║{'🎰 AVAILABLE CASINOS 🎰'.center(width)}║{RESET}")
-        print(f"{MAGENTA}╠{'═' * width}╣{RESET}")
-        print(f"{MAGENTA}║{' ' * width}║{RESET}")
-        
+        print_server_menu(servers)
         server_list = list(servers.items())  # [(name, (ip, port)), ...]
-        
-        for i, (name, (ip, port)) in enumerate(server_list, start=1):
-            emoji = "🏠" if i == 1 else "🎲" if i == 2 else "🃏"
-            line = f"  [{i}] {emoji} {name:<25} {ip}:{port}"
-            print(f"{MAGENTA}║{RESET}{line:<{width-2}}{MAGENTA}║{RESET}")
-        
-        print(f"{MAGENTA}║{' ' * width}║{RESET}")
-        print(f"{MAGENTA}║{RESET}  [0] 🔄 Rescan for servers{' ' * (width - 28)}{MAGENTA}║{RESET}")
-        print(f"{MAGENTA}║{' ' * width}║{RESET}")
-        print(f"{MAGENTA}╚{'═' * width}╝{RESET}")
         
         # Get user choice
         try:
@@ -433,12 +129,12 @@ def listen_for_offers() -> tuple:
                 continue  # Rescan
             
             if choice < 1 or choice > len(server_list):
-                print(f"{RED}Invalid choice!{RESET}")
+                print_message("Invalid choice!", "error")
                 continue
             
             # Get selected server
             selected_name, (selected_ip, selected_port) = server_list[choice - 1]
-            print(f"\n{GREEN}[✅] Selected: {selected_name}{RESET}")
+            print_message(f"Selected: {selected_name}", "success")
             
             return (selected_ip, selected_port, selected_name)
         
@@ -512,7 +208,7 @@ def get_user_decision() -> str:
     """
     while True:
         try:
-            print_hit_stand_prompt()
+            print_decision_prompt()
             choice = input(f"{CYAN}Choice (h/s): {RESET}").strip().lower()
             if choice == 'h' or choice == 'hit':
                 return "Hittt"
@@ -526,35 +222,6 @@ def get_user_decision() -> str:
             return "Stand"
 
 
-def print_game_state(my_hand: list, dealer_card: Card = None, dealer_hand: list = None):
-    """
-    Display current game state nicely.
-    
-    Args:
-        my_hand: List of Card objects in player's hand
-        dealer_card: Single Card that dealer is showing (optional)
-        dealer_hand: Full list of dealer's cards (optional, for end of round)
-    """
-    print("\n" + "="*60)
-    print("\033[95mCurrent Game State:\033[0m")
-    print("="*60)
-    
-    # Show player's hand
-    my_value = calculate_hand_value(my_hand)
-    print(f"\033[92mYour hand: {format_hand(my_hand)}\033[0m")
-    
-    # Show dealer's hand
-    if dealer_hand is not None:
-        # Show full dealer hand (end of round)
-        dealer_value = calculate_hand_value(dealer_hand)
-        print(f"\033[91mDealer hand: {format_hand(dealer_hand)}\033[0m")
-    elif dealer_card is not None:
-        # Show only visible dealer card (during play)
-        print(f"\033[91mDealer shows: {dealer_card}\033[0m")
-    else:
-        print(f"\033[91mDealer: (no card shown yet)\033[0m")
-    
-    print("="*60 + "\n")
 
 
 def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1, game_stats: dict = None) -> tuple:
@@ -576,25 +243,25 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
     dealer_visible_card = None
     
     # Receive 2 cards from server (my hand)
-    print(f"{CYAN}[📥] Receiving your cards...{RESET}")
+    print_message("Receiving your cards...", "receive")
     for i in range(2):
         result, card = receive_card(tcp_socket)
         my_hand.append(card)
         time.sleep(0.3)  # Dramatic effect
-        print(f"  {GREEN}✓{RESET} Received: {card}")
+        print_message(f"Received: {card}", "success")
     
     # Receive 1 card (dealer's visible card)
-    print(f"\n{CYAN}[📥] Receiving dealer's card...{RESET}")
+    print_message("Receiving dealer's card...", "receive")
     result, dealer_visible_card = receive_card(tcp_socket)
     dealer_hand.append(dealer_visible_card)
     time.sleep(0.3)
-    print(f"  {BLUE}✓{RESET} Dealer shows: {dealer_visible_card}")
+    print_message(f"Dealer shows: {dealer_visible_card}", "info")
     
-    # Display initial state with ASCII art
-    print_game_state_ascii(my_hand, dealer_hand, dealer_visible_count=1)
+    # Display initial state with ASCII art - hide second dealer card
+    print_game_state(my_hand, dealer_hand, hide_dealer_card=True)
     
     # PLAYER TURN
-    print(f"{CYAN}[YOUR TURN]{RESET}")
+    print_message("YOUR TURN", "game")
     player_bust = False
     hits_this_round = 0
     stands_this_round = 0
@@ -612,7 +279,7 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
             # Track biggest bust
             if game_stats is not None:
                 game_stats['biggest_bust'] = max(game_stats.get('biggest_bust', 0), my_value)
-            print_result_screen(RESULT_LOSS, my_value, 0, player_bust=True)
+            print_bust(my_value, is_player=True)
             return (RESULT_LOSS, hits_this_round, stands_this_round, my_value)
         
         # Get user decision
@@ -627,10 +294,10 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
             result, card = receive_card(tcp_socket)
             my_hand.append(card)
             time.sleep(0.3)
-            print(f"\n{GREEN}[✓] You received: {card}{RESET}")
+            print_message(f"You received: {card}", "success")
             
-            # Update display
-            print_game_state_ascii(my_hand, dealer_hand, dealer_visible_count=1)
+            # Update display - still hide dealer's second card
+            print_game_state(my_hand, dealer_hand, hide_dealer_card=True)
             
             # Check if round ended (I busted)
             if result != RESULT_NOT_OVER:
@@ -639,7 +306,7 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
                 # Track biggest bust
                 if game_stats is not None:
                     game_stats['biggest_bust'] = max(game_stats.get('biggest_bust', 0), my_value)
-                print_result_screen(RESULT_LOSS, my_value, 0, player_bust=True)
+                print_bust(my_value, is_player=True)
                 if result == RESULT_LOSS:
                     return (RESULT_LOSS, hits_this_round, stands_this_round, my_value)
                 return (result, hits_this_round, stands_this_round, my_value)
@@ -647,12 +314,12 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
         elif decision == "Stand":
             stands_this_round += 1
             my_value = calculate_hand_value(my_hand)
-            print(f"\n{YELLOW}You stand with {my_value}{RESET}")
+            print_message(f"You stand with {my_value}", "info")
             break
     
     # WAIT FOR DEALER
-    print(f"\n{CYAN}[DEALER'S TURN]{RESET}")
-    print(f"{BLUE}Waiting for dealer to play...{RESET}\n")
+    print_message("DEALER'S TURN", "game")
+    print_message("Waiting for dealer to play...", "info")
     
     # Receive dealer's cards until result != NOT_OVER
     while True:
@@ -662,13 +329,13 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
         if result == RESULT_NOT_OVER:
             # Check if this is the first dealer card we're receiving (the hidden one)
             if len(dealer_hand) == 1:
-                print(f"{BLUE}[🃏] Dealer reveals: {card}{RESET}")
+                print_message(f"Dealer reveals: {card}", "info")
             else:
-                print(f"{BLUE}[🃏] Dealer draws: {card}{RESET}")
+                print_message(f"Dealer draws: {card}", "info")
             dealer_hand.append(card)
             time.sleep(0.5)  # Dramatic effect
-            # Update display
-            print_game_state_ascii(my_hand, dealer_hand, dealer_visible_count=len(dealer_hand))
+            # Update display - show all cards now
+            print_game_state(my_hand, dealer_hand, hide_dealer_card=False)
         else:
             # Result received, this is a dummy card - don't add it to dealer_hand
             break
@@ -688,15 +355,16 @@ def play_round(tcp_socket: socket.socket, round_num: int, total_rounds: int = 1,
             game_stats['hand_values'] = []
         game_stats['hand_values'].append(my_value)
     
-    # Final display
-    print_game_state_ascii(my_hand, dealer_hand, dealer_visible_count=len(dealer_hand))
+    # Final display - show all cards
+    print_game_state(my_hand, dealer_hand, hide_dealer_card=False)
     
     # Show result screen
     if dealer_bust:
-        print_result_screen(RESULT_WIN, my_value, dealer_value, dealer_bust=True)
+        print_bust(dealer_value, is_player=False)
+        print_result(RESULT_WIN, my_value, dealer_value)
         return (RESULT_WIN, hits_this_round, stands_this_round, my_value)
     else:
-        print_result_screen(result, my_value, dealer_value)
+        print_result(result, my_value, dealer_value)
         return (result, hits_this_round, stands_this_round, my_value)
 
 
@@ -715,17 +383,17 @@ def play_game(server_ip: str, tcp_port: int, num_rounds: int) -> dict:
     tcp_socket = None
     try:
         # Create TCP socket and connect
-        print(f"\n{CYAN}[🔌] Connecting to server...{RESET}")
+        print_message("Connecting to server...", "connect")
         tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp_socket.settimeout(30.0)  # 30 second timeout
         tcp_socket.connect((server_ip, tcp_port))
-        print(f"{GREEN}[✅] Connected successfully!{RESET}")
+        print_message("Connected successfully!", "success")
         
         # Send request packet
         request_packet = create_request_packet(num_rounds, TEAM_NAME)
         tcp_socket.sendall(request_packet)
-        print(f"{CYAN}[📤] Requesting {num_rounds} rounds...{RESET}")
-        print(f"{GREEN}[🎮] Game starting!{RESET}\n")
+        print_message(f"Requesting {num_rounds} rounds...", "send")
+        print_message("Game starting!", "game")
         
         # Initialize statistics
         stats = {
@@ -780,7 +448,7 @@ def play_game(server_ip: str, tcp_port: int, num_rounds: int) -> dict:
                 stats['total_stands'] += stands
                 
             except Exception as e:
-                print(f"{RED}[❌] Round {round_num} failed: {e}{RESET}")
+                print_message(f"Round {round_num} failed: {e}", "error")
                 break
         
         # Calculate average hand value
@@ -799,16 +467,16 @@ def play_game(server_ip: str, tcp_port: int, num_rounds: int) -> dict:
         return stats
     
     except socket.timeout:
-        print(f"{RED}[❌] Connection timeout{RESET}")
+        print_message("Connection timeout", "error")
         return {'wins': 0, 'losses': 0, 'ties': 0, 'total': 0}
     except Exception as e:
-        print(f"{RED}[❌] Connection error: {e}{RESET}")
+        print_message(f"Connection error: {e}", "error")
         return {'wins': 0, 'losses': 0, 'ties': 0, 'total': 0}
     finally:
         if tcp_socket:
             try:
                 tcp_socket.close()
-                print(f"{CYAN}[🔌] Connection closed{RESET}")
+                print_message("Connection closed", "connect")
             except:
                 pass
 
@@ -858,18 +526,16 @@ def main():
             try:
                 play_again = input(f"\n{CYAN}Play again? (y/n): {RESET}").strip().lower()
                 if play_again != 'y' and play_again != 'yes':
-                    print(f"\n{MAGENTA}╔{'═' * 60}╗{RESET}")
-                    print(f"{MAGENTA}║{'Thanks for playing! Goodbye! 👋'.center(60)}║{RESET}")
-                    print(f"{MAGENTA}╚{'═' * 60}╝{RESET}\n")
+                    print_goodbye()
                     break
             except (EOFError, KeyboardInterrupt):
-                print(f"\n{YELLOW}Thanks for playing! Goodbye!{RESET}")
+                print_goodbye()
                 break
     
     except KeyboardInterrupt:
         print(f"\n{YELLOW}Exiting...{RESET}")
     except Exception as e:
-        print(f"{RED}[FATAL ERROR] {e}{RESET}")
+        print_message(f"FATAL ERROR: {e}", "error")
         import traceback
         traceback.print_exc()
 
