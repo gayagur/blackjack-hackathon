@@ -1,3 +1,4 @@
+<div align="center">
 
 # 🎰 BLACKJACK - Network Edition 🎰
 
@@ -8,31 +9,33 @@
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Complete-success?style=for-the-badge)
 ```
-┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
-│ A       │  │ K       │  │ Q       │  │ J       │
-│         │  │         │  │         │  │         │
-│    ♠    │  │    ♥    │  │    ♦    │  │    ♣    │
-│         │  │         │  │         │  │         │
-│       A │  │       K │  │       Q │  │       J │
-└─────────┘  └─────────┘  └─────────┘  └─────────┘
+    ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
+    │ A       │  │ K       │  │ Q       │  │ J       │
+    │         │  │         │  │         │  │         │
+    │    ♠    │  │    ♥    │  │    ♦    │  │    ♣    │
+    │         │  │         │  │         │  │         │
+    │       A │  │       K │  │       Q │  │       J │
+    └─────────┘  └─────────┘  └─────────┘  └─────────┘
 ```
 
-**A multiplayer Blackjack game using TCP/UDP networking protocols**
+### **A multiplayer Blackjack game using TCP/UDP networking protocols**
 
 [Features](#-features) •
 [Installation](#-installation) •
 [Usage](#-usage) •
 [Protocol](#-protocol) •
+[Statistics](#-statistics) •
+[Bonus Modes](#-bonus-game-modes) •
 [Team](#-team)
 
 ---
 
-<div align="center">
 <p align="center">
-  <img src="assests/pic.png" width="400" />
+  <img src="assests/pic.png" width="500" />
 </p>
 
 ---
+
 </div>
 
 ## 📖 About
@@ -59,8 +62,8 @@ This project implements a **client-server Blackjack game** as part of the Introd
 
 ### 🖥️ User Interface
 - 🎨 Colorful terminal output with ANSI colors
-- 🃏 ASCII art card display
-- 📊 Game statistics tracking
+- 🃏 Beautiful ASCII art card display
+- 📊 Comprehensive statistics tracking
 - 🏆 Win rate calculation
 - 🎰 Beautiful welcome screen
 
@@ -88,9 +91,9 @@ blackjack/
 ├── 📄 server.py         # Blackjack dealer server
 ├── 📄 client.py         # Player client application
 ├── 📄 display.py        # Visual output functions
-├── 📁 assets/           # Images and resources
+├── 📁 assets/           
 │   └── 🖼️ pic.png
-└── 📄 README.md         # You are here!
+└── 📄 README.md         
 ```
 
 ---
@@ -101,7 +104,7 @@ blackjack/
 - Python 3.x
 - No external dependencies! (uses only standard library)
 
-### Clone the Repository
+### Clone & Run
 ```bash
 git clone https://github.com/gayagur/blackjack-hackathon.git
 cd blackjack-hackathon
@@ -115,15 +118,13 @@ cd blackjack-hackathon
 ```bash
 python server.py
 ```
-
-Output:
 ```
 ============================================================
 Blackjack Server Started
 ============================================================
 Server started, listening on IP address 192.168.1.10
 TCP port: 54321
-Team name: MyTeam
+Team name: GayaMatias
 ============================================================
 
 [UDP] Broadcasting offers on port 13122...
@@ -133,30 +134,56 @@ Team name: MyTeam
 ```bash
 python client.py
 ```
-
-Output:
 ```
 ╔════════════════════════════════════════════════════════════╗
-║                                                            ║
 ║        ♠ ♥ ♣ ♦   B L A C K J A C K   ♦ ♣ ♥ ♠              ║
-║                                                            ║
 ║           🎰  WELCOME TO THE CASINO  🎰                    ║
-║                                                            ║
 ╚════════════════════════════════════════════════════════════╝
 
 How many rounds do you want to play? 5
 
 [🔍] Scanning for servers...
-  Found: MyTeam at 192.168.1.10
+  Found: GayaMatias at 192.168.1.10
 
 ==================================================
 Available servers:
 ==================================================
-  1. MyTeam (192.168.1.10:54321)
+  1. GayaMatias (192.168.1.10:54321)
   0. Rescan
 ==================================================
 
 Choose server (0 to rescan): 1
+```
+
+### Gameplay Example
+```
+    ╔════════════════════════════════════════════════════════════╗
+    ║                        D E A L E R                         ║
+    ╚════════════════════════════════════════════════════════════╝
+    ┌─────────┐  ┌─────────┐
+    │ K       │  │░░░░░░░░░│
+    │         │  │░░░░░░░░░│
+    │    ♠    │  │░░░░░░░░░│
+    │         │  │░░░░░░░░░│
+    │       K │  │░░░░░░░░░│
+    └─────────┘  └─────────┘
+
+    Value: 10 + ?
+
+    ╔════════════════════════════════════════════════════════════╗
+    ║                      Y O U R   H A N D                     ║
+    ╚════════════════════════════════════════════════════════════╝
+    ┌─────────┐  ┌─────────┐
+    │ 7       │  │ 9       │
+    │         │  │         │
+    │    ♥    │  │    ♣    │
+    │         │  │         │
+    │       7 │  │       9 │
+    └─────────┘  └─────────┘
+
+    Value: 16
+
+    Hit or Stand? (h/s): _
 ```
 
 ---
@@ -213,12 +240,15 @@ Choose server (0 to rescan): 1
 
 ## 🃏 Game Rules
 
-### Card Values
+<div align="center">
+
 | Card | Value |
-|------|-------|
-| 2-10 | Face value |
+|:----:|:-----:|
+| 2-10 | Face Value |
 | J, Q, K | 10 |
 | A | 11 |
+
+</div>
 
 ### Game Flow
 ```
@@ -236,64 +266,63 @@ Choose server (0 to rescan): 1
 
 ## 📊 Statistics
 
-The game tracks comprehensive statistics for each session:
-
-### Basic Statistics
-| Stat | Description |
-|------|-------------|
-| ✅ **Wins** | Total rounds won |
-| ❌ **Losses** | Total rounds lost |
-| 🤝 **Ties** | Total rounds tied |
-| 📈 **Win Rate** | Percentage of wins |
-
-### Advanced Statistics
-| Stat | Description |
-|------|-------------|
-| 🔥 **Longest Win Streak** | Most consecutive wins |
-| 📉 **Longest Lose Streak** | Most consecutive losses |
-| 🎯 **Current Streak** | Current win/lose streak |
-| 💥 **Biggest Bust** | Highest value over 21 |
-| 🎰 **Blackjacks** | Times got 21 with 2 cards |
-| 💀 **Dealer Busts** | Times dealer went over 21 |
-| 📊 **Avg Hand Value** | Average final hand value |
-| 👊 **Total Hits** | Number of times hit |
-| 🛑 **Total Stands** | Number of times stood |
-
-### Example Output
+The game tracks comprehensive statistics throughout your session:
 ```
-╔════════════════════════════════════════════════════════════╗
-║                   📊 GAME STATISTICS                       ║
-╠════════════════════════════════════════════════════════════╣
-║                                                            ║
-║              Rounds Played:  10                            ║
-║              ─────────────────────                         ║
-║              ✅ Wins:         6                            ║
-║              ❌ Losses:       3                            ║
-║              🤝 Ties:         1                            ║
-║              ─────────────────────                         ║
-║              📈 Win Rate:    60.0%                         ║
-║                                                            ║
-╠════════════════════════════════════════════════════════════╣
-║                   🏆 ADVANCED STATS                        ║
-╠════════════════════════════════════════════════════════════╣
-║                                                            ║
-║              🔥 Longest Win Streak:   4                    ║
-║              📉 Longest Lose Streak:  2                    ║
-║              💥 Biggest Bust:         26                   ║
-║              🎰 Blackjacks:           2                    ║
-║              💀 Dealer Busts:         3                    ║
-║              📊 Avg Hand Value:       17.5                 ║
-║              👊 Total Hits:           15                   ║
-║              🛑 Total Stands:         8                    ║
-║                                                            ║
-╚════════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════════╗
+║                    📊 GAME STATISTICS 📊                       ║
+╠════════════════════════════════════════════════════════════════╣
+║                                                                ║
+║   ┌─────────────────── RESULTS ───────────────────┐            ║
+║   │   🎮 Rounds Played:     10                    │            ║
+║   │   ✅ Wins:              6                     │            ║
+║   │   ❌ Losses:            3                     │            ║
+║   │   🤝 Ties:              1                     │            ║
+║   │   📈 Win Rate:          60.0%                 │            ║
+║   └───────────────────────────────────────────────┘            ║
+║                                                                ║
+║   ┌─────────────────── STREAKS ───────────────────┐            ║
+║   │   🔥 Best Win Streak:   4                     │            ║
+║   │   💀 Worst Lose Streak: 2                     │            ║
+║   └───────────────────────────────────────────────┘            ║
+║                                                                ║
+║   ┌─────────────────── HIGHLIGHTS ────────────────┐            ║
+║   │   🎰 Blackjacks:        2                     │            ║
+║   │   💥 Busts:             3                     │            ║
+║   │   💀 Dealer Busts:      4                     │            ║
+║   │   📊 Avg Hand Value:    17.5                  │            ║
+║   └───────────────────────────────────────────────┘            ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
 ```
+
+---
+
+## 🎁 Bonus Game Modes
+
+In addition to the classic mode, we implemented **two bonus modes** for extra fun:
+
+### 🎰 Casino Mode
+A full betting experience with chips!
+
+- 💰 Start with **$1,000** chips
+- 🎲 Place bets **$10 - $500** per round
+- ⬆️ **Double Down** - double your bet for one card
+- 🎰 **Blackjack pays 1.5x**
+- 💸 Go broke = Game Over!
+
+### 🤖 Bot Mode
+Watch AI play with mathematically optimal strategy!
+
+- 🧠 Uses **Basic Strategy** (optimal decisions)
+- 📈 Auto-plays rounds automatically
+- 📊 Compare performance vs expected win rate
+- 🎓 Learn perfect Blackjack strategy
 
 ---
 
 ## 🛠️ Technical Details
 
-### Technologies Used
+### Technologies
 - **Python 3.x** - Programming language
 - **socket** - Network communication
 - **threading** - Concurrent client handling
@@ -316,11 +345,12 @@ The game tracks comprehensive statistics for each session:
 
 <div align="center">
 
-| <img src="https://github.com/identicons/gayagur.png" width="100"> | <img src="https://github.com/identicons/matiasguernik.png" width="100"> |
+### 🃏 The Developers 🃏
+
+| <img src="https://github.com/gayagur.png" width="120" style="border-radius:50%"> | <img src="https://github.com/matiasguernik.png" width="120" style="border-radius:50%"> |
 |:---:|:---:|
 | **Gaya Gur** | **Matias Guernik** |
-| Developer | Developer |
-| [![GitHub](https://img.shields.io/badge/GitHub-gayagur-black?style=flat-square&logo=github)](https://github.com/gayagur) | [![GitHub](https://img.shields.io/badge/GitHub-matiasguernik-black?style=flat-square&logo=github)](https://github.com/matiasguernik) |
+| [![GitHub](https://img.shields.io/badge/GitHub-gayagur-black?style=for-the-badge&logo=github)](https://github.com/gayagur) | [![GitHub](https://img.shields.io/badge/GitHub-matiasguernik-black?style=for-the-badge&logo=github)](https://github.com/matiasguernik) |
 
 </div>
 
@@ -328,15 +358,24 @@ The game tracks comprehensive statistics for each session:
 
 ## 📝 License
 
-This project was created for educational purposes as part of the **Introduction to Networks** course at Ben-Gurion University.
+This project was created for educational purposes as part of the **Introduction to Networks** course at **Ben-Gurion University of the Negev**.
 
 ---
 
 <div align="center">
 
 ## 🎰 Good Luck at the Tables! 🎰
+```
+     ___________
+    |     |     |
+    |  ♠  |  ♥  |
+    |_____|_____|
+    |     |     |
+    |  ♣  |  ♦  |
+    |_____|_____|
+```
 
-**May your hand always be 21!** 🃏
+### **May your hand always be 21!** 🃏
 
 Made with ❤️ by **Gaya & Matias**
 
