@@ -329,15 +329,10 @@ Watch AI play with mathematically optimal strategy!
 - **struct** - Binary packet encoding/decoding
 
 ### Network Architecture
-```
-    ┌─────────────┐         UDP Broadcast          ┌─────────────┐
-    │             │ ══════════════════════════════►│             │
-    │   SERVER    │         (port 13122)           │   CLIENT    │
-    │  (Dealer)   │                                │  (Player)   │
-    │             │ ◄══════════════════════════════│             │
-    └─────────────┘       TCP Connection           └─────────────┘
-                      (game communication)
-```
+<p align="center">
+  <img src="assests/flow.png" width="500" />
+</p>
+
 
 ---
 
