@@ -59,6 +59,7 @@ TEAM_NAME = "Yoske"
 MODE_CLASSIC = 1
 MODE_CASINO = 2
 MODE_BOT = 3
+MODE_MULTIPLAYER = 4
 
 # Casino Mode Settings
 STARTING_CHIPS = 1000
@@ -66,6 +67,11 @@ MIN_BET = 10
 MAX_BET = 500
 BLACKJACK_MULTIPLIER = 1.5  # Blackjack pays 3:2
 DOUBLE_DOWN_ENABLED = True
+
+# Multiplayer Mode Settings
+MAX_PLAYERS_PER_ROOM = 4
+MIN_PLAYERS_TO_START = 2
+LOBBY_TIMEOUT = 60  # seconds to wait for players
 
 
 # ============================================================================

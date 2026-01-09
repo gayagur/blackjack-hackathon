@@ -28,11 +28,14 @@ from constants import (
     MODE_CLASSIC,
     MODE_CASINO,
     MODE_BOT,
+    MODE_MULTIPLAYER,
     STARTING_CHIPS,
     MIN_BET,
     MAX_BET,
     BLACKJACK_MULTIPLIER,
-    DOUBLE_DOWN_ENABLED
+    DOUBLE_DOWN_ENABLED,
+    MAX_PLAYERS_PER_ROOM,
+    MIN_PLAYERS_TO_START
 )
 
 app = Flask(__name__)
@@ -41,6 +44,10 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Store active game connections
 active_games = {}
+
+# Multiplayer room management
+game_rooms = {}  # room_id -> RoomState
+player_rooms = {}  # session_id -> room_id
 
 
 # ============================================================================
@@ -273,6 +280,135 @@ class GameStatistics:
             })
         
         return stats
+
+
+# ============================================================================
+# Multiplayer Mode Classes
+# ============================================================================
+
+class PlayerState:
+    """State for a single player in multiplayer"""
+    def __init__(self, session_id, name, character):
+        self.session_id = session_id
+        self.name = name
+        self.character = character
+        self.hand = []
+        self.hand_value = 0
+        self.status = 'waiting'  # waiting, playing, stand, bust, done
+        self.result = None  # win, loss, tie
+        self.chips = STARTING_CHIPS  # for casino multiplayer
+        self.current_bet = 0
+        self.bet_placed = False  # Track if bet has been placed
+        self.is_ready = False
+        self.pending_decision = None  # Store decision from handler (Hit/Stand)
+
+
+class RoomState:
+    """Manages a multiplayer game room"""
+    def __init__(self, room_id, host_session_id, num_rounds, is_casino=False):
+        import threading
+        self.room_id = room_id
+        self.host_session_id = host_session_id
+        self.players = {}  # session_id -> PlayerState
+        self.dealer_hand = []
+        self.dealer_value = 0
+        self.current_turn_index = 0
+        self.player_order = []  # list of session_ids in turn order
+        self.round_num = 0
+        self.num_rounds = num_rounds
+        self.game_status = 'lobby'  # lobby, betting, playing, dealer_turn, round_over, finished
+        self.is_casino = is_casino
+        self.created_at = time.time()
+        self.tcp_socket = None  # Connection to game server
+        self.tcp_lock = threading.Lock()  # Lock for TCP socket access
+        self.stats = {}  # session_id -> GameStatistics
+        # Server info (selected by host during room creation)
+        self.server_ip = None
+        self.server_port = None
+        self.server_name = None
+    
+    def add_player(self, session_id, name, character):
+        if len(self.players) >= MAX_PLAYERS_PER_ROOM:
+            return False
+        self.players[session_id] = PlayerState(session_id, name, character)
+        self.player_order.append(session_id)
+        self.stats[session_id] = GameStatistics()
+        return True
+    
+    def remove_player(self, session_id):
+        if session_id in self.players:
+            del self.players[session_id]
+            if session_id in self.player_order:
+                self.player_order.remove(session_id)
+            if session_id in self.stats:
+                del self.stats[session_id]
+    
+    def get_current_player(self):
+        if self.current_turn_index < len(self.player_order):
+            return self.players.get(self.player_order[self.current_turn_index])
+        return None
+    
+    def next_turn(self):
+        self.current_turn_index += 1
+        return self.current_turn_index < len(self.player_order)
+    
+    def all_players_ready(self):
+        return all(p.is_ready for p in self.players.values())
+    
+    def all_players_done(self):
+        return all(p.status in ['stand', 'bust', 'done'] for p in self.players.values())
+    
+    def reset_for_new_round(self):
+        self.dealer_hand = []
+        self.dealer_value = 0
+        self.current_turn_index = 0
+        for player in self.players.values():
+            player.hand = []
+            player.hand_value = 0
+            player.status = 'waiting'
+            player.result = None
+            player.is_ready = False
+            player.current_bet = 0
+            player.bet_placed = False
+            player.pending_decision = None  # Reset pending decision
+    
+    def to_dict(self):
+        """Convert room state to dictionary for sending to clients"""
+        return {
+            'room_id': self.room_id,
+            'players': {
+                sid: {
+                    'name': p.name,
+                    'character': p.character,
+                    'hand': [{'rank': c.rank, 'suit': c.suit} for c in p.hand] if p.hand else [],
+                    'hand_value': p.hand_value,
+                    'status': p.status,
+                    'result': p.result,
+                    'chips': p.chips,
+                    'current_bet': p.current_bet,
+                    'is_ready': p.is_ready,
+                    'bet_placed': p.bet_placed
+                }
+                for sid, p in self.players.items()
+            },
+            'dealer_hand': [{'rank': c.rank, 'suit': c.suit} if c else None for c in self.dealer_hand],
+            'dealer_value': self.dealer_value,
+            'current_turn': self.player_order[self.current_turn_index] if self.current_turn_index < len(self.player_order) else None,
+            'player_order': self.player_order,
+            'round_num': self.round_num,
+            'num_rounds': self.num_rounds,
+            'game_status': self.game_status,
+            'player_count': len(self.players),
+            'max_players': MAX_PLAYERS_PER_ROOM,
+            'is_casino': self.is_casino,
+            'server_ip': self.server_ip,
+            'server_port': self.server_port,
+            'server_name': self.server_name,
+            'stats': {
+                sid: stats.to_dict(MODE_MULTIPLAYER)
+                for sid, stats in self.stats.items()
+            } if self.stats else {}
+        }
 
 
 # ============================================================================
@@ -1164,6 +1300,762 @@ def handle_place_bet(data):
         return
     
     active_games[session_id]['bet_amount'] = bet_amount
+
+
+# ============================================================================
+# Multiplayer Socket Handlers
+# ============================================================================
+
+import uuid
+from flask_socketio import join_room, leave_room
+
+@socketio.on('create_room')
+def handle_create_room(data):
+    """Host creates a new multiplayer room"""
+    from flask import request
+    session_id = request.sid
+    
+    room_id = str(uuid.uuid4())[:8].upper()  # Short room code like "A1B2C3D4"
+    num_rounds = data.get('rounds', 5)
+    is_casino = data.get('is_casino', False)
+    player_name = data.get('player_name', 'Player 1')
+    character = data.get('character', 'gaya')
+    
+    # Get server info from host
+    server_ip = data.get('server_ip')
+    server_port = data.get('server_port')
+    server_name = data.get('server_name')
+    
+    if not server_ip or not server_port:
+        emit('error', {'message': 'Please select a server first'})
+        return
+    
+    room = RoomState(room_id, session_id, num_rounds, is_casino)
+    room.server_ip = server_ip
+    room.server_port = server_port
+    room.server_name = server_name
+    room.add_player(session_id, player_name, character)
+    
+    game_rooms[room_id] = room
+    player_rooms[session_id] = room_id
+    
+    # Join socket.io room for broadcasting
+    join_room(room_id)
+    
+    emit('room_created', {
+        'room_id': room_id,
+        'room_state': room.to_dict()
+    })
+    
+    print(f"[MULTIPLAYER] Room {room_id} created by {player_name} on server {server_name}")
+
+
+@socketio.on('join_room')
+def handle_join_room(data):
+    """Player joins an existing room"""
+    from flask import request
+    session_id = request.sid
+    
+    room_id = data.get('room_id', '').upper()
+    player_name = data.get('player_name', 'Player')
+    character = data.get('character', 'gaya')
+    
+    if room_id not in game_rooms:
+        emit('error', {'message': 'Room not found'})
+        return
+    
+    room = game_rooms[room_id]
+    
+    if room.game_status != 'lobby':
+        emit('error', {'message': 'Game already in progress'})
+        return
+    
+    if len(room.players) >= MAX_PLAYERS_PER_ROOM:
+        emit('error', {'message': 'Room is full'})
+        return
+    
+    # Add player to room
+    if not room.add_player(session_id, player_name, character):
+        emit('error', {'message': 'Failed to join room'})
+        return
+    
+    player_rooms[session_id] = room_id
+    
+    # Join socket.io room
+    join_room(room_id)
+    
+    # Also send room_state to the joining player
+    emit('room_joined', {
+        'room_state': room.to_dict()
+    })
+    
+    # Notify everyone in room (including the new player)
+    socketio.emit('player_joined', {
+        'player_name': player_name,
+        'character': character,
+        'room_state': room.to_dict()
+    }, room=room_id)
+    
+    print(f"[MULTIPLAYER] {player_name} joined room {room_id}")
+
+
+@socketio.on('leave_room')
+def handle_leave_room():
+    """Player leaves the room - works during lobby AND during game"""
+    from flask import request
+    session_id = request.sid
+    
+    if session_id not in player_rooms:
+        return
+    
+    room_id = player_rooms[session_id]
+    room = game_rooms.get(room_id)
+    
+    if room:
+        player = room.players.get(session_id)
+        player_name = player.name if player else 'Unknown'
+        
+        print(f"[MULTIPLAYER] {player_name} leaving room {room_id}")
+        
+        # If game is in progress, mark player as disconnected
+        if room.game_status not in ['lobby', 'finished']:
+            if player:
+                player.status = 'disconnected'
+                player.result = 'loss'  # Forfeit
+            
+            socketio.emit('player_disconnected', {
+                'player_name': player_name,
+                'player_id': session_id,
+                'room_state': room.to_dict()
+            }, room=room_id)
+        
+        # Remove player
+        room.remove_player(session_id)
+        leave_room(room_id)
+        del player_rooms[session_id]
+        
+        # If host left
+        if session_id == room.host_session_id:
+            if room.players:
+                # Assign new host
+                room.host_session_id = list(room.players.keys())[0]
+                new_host = room.players[room.host_session_id]
+                
+                socketio.emit('new_host', {
+                    'host_id': room.host_session_id,
+                    'host_name': new_host.name,
+                    'room_state': room.to_dict()
+                }, room=room_id)
+                
+                print(f"[MULTIPLAYER] New host: {new_host.name}")
+            else:
+                # No players left - close room
+                del game_rooms[room_id]
+                print(f"[MULTIPLAYER] Room {room_id} deleted (empty)")
+                return
+        
+        socketio.emit('player_left', {
+            'player_name': player_name,
+            'room_state': room.to_dict()
+        }, room=room_id)
+        
+        # If only 1 player left during game, end the game
+        if len(room.players) < MIN_PLAYERS_TO_START and room.game_status not in ['lobby', 'finished']:
+            room.game_status = 'finished'
+            socketio.emit('game_ended_not_enough_players', {
+                'message': 'Not enough players to continue',
+                'room_state': room.to_dict()
+            }, room=room_id)
+
+
+@socketio.on('player_ready')
+def handle_player_ready(data):
+    """Player signals they're ready to start"""
+    from flask import request
+    session_id = request.sid
+    
+    if session_id not in player_rooms:
+        return
+    
+    room_id = player_rooms[session_id]
+    room = game_rooms.get(room_id)
+    
+    if room and session_id in room.players:
+        room.players[session_id].is_ready = data.get('ready', True)
+        
+        socketio.emit('player_ready_update', {
+            'room_state': room.to_dict()
+        }, room=room_id)
+        
+        # Check if all players ready and enough players
+        if room.all_players_ready() and len(room.players) >= MIN_PLAYERS_TO_START:
+            socketio.emit('all_players_ready', {}, room=room_id)
+
+
+@socketio.on('start_multiplayer_game')
+def handle_start_multiplayer(data):
+    """Host starts the multiplayer game"""
+    from flask import request
+    session_id = request.sid
+    
+    if session_id not in player_rooms:
+        emit('error', {'message': 'Not in a room'})
+        return
+    
+    room_id = player_rooms[session_id]
+    room = game_rooms.get(room_id)
+    
+    if not room:
+        emit('error', {'message': 'Room not found'})
+        return
+    
+    if session_id != room.host_session_id:
+        emit('error', {'message': 'Only host can start the game'})
+        return
+    
+    if len(room.players) < MIN_PLAYERS_TO_START:
+        emit('error', {'message': f'Need at least {MIN_PLAYERS_TO_START} players'})
+        return
+    
+    if not room.all_players_ready():
+        emit('error', {'message': 'All players must be ready'})
+        return
+    
+    # Use server info from room (selected by host during room creation)
+    server_ip = room.server_ip
+    server_port = room.server_port
+    
+    if not server_ip or not server_port:
+        emit('error', {'message': 'No server selected for this room'})
+        return
+    
+    try:
+        tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_socket.settimeout(30.0)
+        tcp_socket.connect((server_ip, server_port))
+        
+        # Request game - multiply rounds by number of players
+        total_rounds = room.num_rounds * len(room.players)
+        request_packet = create_request_packet(total_rounds, TEAM_NAME)
+        tcp_socket.sendall(request_packet)
+        
+        room.tcp_socket = tcp_socket
+        room.game_status = 'playing'
+        
+        socketio.emit('multiplayer_game_started', {
+            'room_state': room.to_dict()
+        }, room=room_id)
+        
+        # Start game loop in separate thread
+        threading.Thread(
+            target=multiplayer_game_loop,
+            args=(room_id,),
+            daemon=True
+        ).start()
+        
+    except Exception as e:
+        emit('error', {'message': f'Failed to connect to server: {str(e)}'})
+
+
+def multiplayer_game_loop(room_id):
+    """Main game loop for multiplayer - FIXED VERSION"""
+    room = game_rooms.get(room_id)
+    if not room:
+        print(f"[ERROR] Room {room_id} not found")
+        return
+    
+    print(f"[MULTIPLAYER] Starting game loop for room {room_id}")
+    
+    try:
+        for round_num in range(1, room.num_rounds + 1):
+            print(f"[MULTIPLAYER] ========== ROUND {round_num}/{room.num_rounds} ==========")
+            
+            room.round_num = round_num
+            room.reset_for_new_round()
+            
+            # Notify round start
+            socketio.emit('multiplayer_round_start', {
+                'round': round_num,
+                'total': room.num_rounds,
+                'room_state': room.to_dict()
+            }, room=room_id)
+            time.sleep(0.3)  # REDUCED from 1.0
+            
+            # ========== CASINO MODE: COLLECT BETS ==========
+            if room.is_casino:
+                room.game_status = 'betting'
+                
+                # Reset bets for all players
+                for player in room.players.values():
+                    player.current_bet = 0
+                    player.bet_placed = False
+                
+                # Send betting phase with chip info for each player
+                betting_info = {}
+                for sid, player in room.players.items():
+                    betting_info[sid] = {
+                        'chips': player.chips,
+                        'min_bet': MIN_BET,
+                        'max_bet': min(MAX_BET, player.chips),
+                        'can_play': player.chips >= MIN_BET
+                    }
+                
+                socketio.emit('multiplayer_betting_phase', {
+                    'round': round_num,
+                    'total_rounds': room.num_rounds,
+                    'betting_info': betting_info,
+                    'room_state': room.to_dict()
+                }, room=room_id)
+                
+                # Wait for all players to place bets (with timeout)
+                timeout = time.time() + 45  # 45 seconds to place bets
+                
+                while not all(p.bet_placed for p in room.players.values() if p.chips >= MIN_BET):
+                    # Check if all players who can bet have bet - start immediately
+                    can_bet_players = [p for p in room.players.values() if p.chips >= MIN_BET]
+                    if can_bet_players and all(p.bet_placed for p in can_bet_players):
+                        print(f"[MULTIPLAYER] All players bet! Starting immediately...")
+                        break
+                    
+                    if time.time() > timeout:
+                        # Auto-bet minimum for players who didn't bet
+                        for player in room.players.values():
+                            if not player.bet_placed and player.chips >= MIN_BET:
+                                player.current_bet = MIN_BET
+                                player.chips -= MIN_BET
+                                player.bet_placed = True
+                                print(f"[MULTIPLAYER] Auto-bet {MIN_BET} for {player.name}")
+                        break
+                    time.sleep(0.1)
+                    if room_id not in game_rooms:
+                        return
+                
+                # Announce all bets placed
+                socketio.emit('multiplayer_all_bets_placed', {
+                    'room_state': room.to_dict()
+                }, room=room_id)
+                time.sleep(0.05)  # Very fast
+            
+            # ========== DEAL CARDS TO ALL PLAYERS ==========
+            room.game_status = 'dealing'
+            print(f"[MULTIPLAYER] Dealing cards to {len(room.players)} players")
+            
+            # Show loading indicator immediately
+            socketio.emit('multiplayer_dealing_started', {
+                'room_state': room.to_dict()
+            }, room=room_id)
+            
+            # Deal all cards first, then notify all at once for instant display
+            # Deal 2 cards to each player (collect all cards first, NO delays)
+            # Use lock to prevent race conditions
+            with room.tcp_lock:
+                for card_num in range(2):
+                    for player_sid in room.player_order:
+                        player = room.players.get(player_sid)
+                        if not player:
+                            continue
+                        
+                        try:
+                            result, card = receive_card(room.tcp_socket)
+                            player.hand.append(card)
+                            player.hand_value = calculate_hand_value(player.hand)
+                            print(f"[MULTIPLAYER] Dealt {card.rank}/{card.suit} to {player.name}, value: {player.hand_value}")
+                            
+                        except Exception as e:
+                            print(f"[ERROR] Failed to deal card to {player.name}: {e}")
+                            socketio.emit('error', {'message': f'Error dealing cards: {str(e)}'}, room=room_id)
+                            return
+            
+            # Send ONE event with complete game state - all cards visible immediately
+            socketio.emit('multiplayer_all_cards_dealt', {
+                'room_state': room.to_dict()
+            }, room=room_id)
+            
+            # ========== DEAL DEALER CARDS ==========
+            print(f"[MULTIPLAYER] Dealing dealer cards")
+            
+            # Dealer's first card (visible) - Use lock
+            try:
+                with room.tcp_lock:
+                    result, dealer_card = receive_card(room.tcp_socket)
+                room.dealer_hand.append(dealer_card)
+                room.dealer_value = dealer_card.get_value()
+                print(f"[MULTIPLAYER] Dealer visible card: {dealer_card.rank}/{dealer_card.suit}")
+                
+            except Exception as e:
+                print(f"[ERROR] Failed to deal dealer card: {e}")
+                socketio.emit('error', {'message': f'Error dealing dealer card: {str(e)}'}, room=room_id)
+                return
+            
+            # Dealer's second card (hidden)
+            room.dealer_hand.append(None)  # Placeholder for hidden card
+            
+            # Send complete state with dealer cards - NO delays
+            socketio.emit('multiplayer_dealer_cards_dealt', {
+                'room_state': room.to_dict()
+            }, room=room_id)
+            
+            # ========== CHECK FOR BLACKJACKS ==========
+            for player_sid in room.player_order:
+                player = room.players.get(player_sid)
+                if player and player.hand_value == 21:
+                    player.status = 'blackjack'
+                    socketio.emit('multiplayer_player_blackjack', {
+                        'player_id': player_sid,
+                        'room_state': room.to_dict()
+                    }, room=room_id)
+            
+            # Send complete game state after dealing - game starts immediately
+            room.game_status = 'playing'
+            socketio.emit('multiplayer_dealing_complete', {
+                'room_state': room.to_dict()
+            }, room=room_id)
+            # NO delay - game starts immediately!
+            
+            # ========== EACH PLAYER'S TURN ==========
+            room.current_turn_index = 0
+            
+            for i, player_sid in enumerate(room.player_order):
+                if room_id not in game_rooms:
+                    return
+                
+                player = room.players.get(player_sid)
+                if not player:
+                    continue
+                
+                room.current_turn_index = i
+                
+                # Skip if player has blackjack or already busted
+                if player.status in ['blackjack', 'bust', 'stand']:
+                    print(f"[MULTIPLAYER] Skipping {player.name} - status: {player.status}")
+                    continue
+                
+                player.status = 'playing'
+                
+                # Notify whose turn
+                print(f"[MULTIPLAYER] {player.name}'s turn")
+                socketio.emit('multiplayer_player_turn', {
+                    'player_id': player_sid,
+                    'player_name': player.name,
+                    'room_state': room.to_dict()
+                }, room=room_id)
+                
+                # Wait for player decisions
+                timeout = time.time() + 60  # 60 second timeout per player
+                
+                while player.status == 'playing':
+                    # Check for pending decision from handler
+                    if player.pending_decision:
+                        decision = player.pending_decision
+                        player.pending_decision = None  # Clear it
+                        
+                        print(f"[MULTIPLAYER] Processing {player.name}'s decision: {decision}")
+                        
+                        if decision == 'Stand':
+                            player.status = 'stand'
+                            with room.tcp_lock:
+                                send_decision(room.tcp_socket, 'Stand')
+                            
+                            socketio.emit('multiplayer_player_stand', {
+                                'player_id': player_sid,
+                                'room_state': room.to_dict()
+                            }, room=room_id)
+                            break
+                        
+                        elif decision == 'Hittt':
+                            # Send decision and receive card - ALL in lock
+                            with room.tcp_lock:
+                                send_decision(room.tcp_socket, 'Hittt')
+                                result, card = receive_card(room.tcp_socket)
+                            
+                            player.hand.append(card)
+                            player.hand_value = calculate_hand_value(player.hand)
+                            
+                            print(f"[MULTIPLAYER] {player.name} hit: {card.rank}/{card.suit}, value: {player.hand_value}")
+                            
+                            if player.hand_value > 21:
+                                player.status = 'bust'
+                                socketio.emit('multiplayer_player_bust', {
+                                    'player_id': player_sid,
+                                    'card': {'rank': card.rank, 'suit': card.suit},
+                                    'hand_value': player.hand_value,
+                                    'room_state': room.to_dict()
+                                }, room=room_id)
+                                break
+                            else:
+                                socketio.emit('multiplayer_player_hit', {
+                                    'player_id': player_sid,
+                                    'card': {'rank': card.rank, 'suit': card.suit},
+                                    'hand_value': player.hand_value,
+                                    'room_state': room.to_dict()
+                                }, room=room_id)
+                                
+                                # IMPORTANT: Emit turn again so player can continue
+                                socketio.emit('multiplayer_player_turn', {
+                                    'player_id': player_sid,
+                                    'player_name': player.name,
+                                    'room_state': room.to_dict()
+                                }, room=room_id)
+                    
+                    if time.time() > timeout:
+                        # Timeout - auto stand
+                        print(f"[MULTIPLAYER] {player.name} timed out - auto stand")
+                        player.status = 'stand'
+                        with room.tcp_lock:
+                            send_decision(room.tcp_socket, 'Stand')
+                        socketio.emit('multiplayer_player_timeout', {
+                            'player_id': player_sid,
+                            'room_state': room.to_dict()
+                        }, room=room_id)
+                        break
+                    
+                    time.sleep(0.1)
+                    if room_id not in game_rooms:
+                        return
+                
+                print(f"[MULTIPLAYER] {player.name} finished - status: {player.status}")
+            
+            # ========== DEALER'S TURN ==========
+            room.game_status = 'dealer_turn'
+            print(f"[MULTIPLAYER] Dealer's turn")
+            
+            socketio.emit('multiplayer_dealer_turn', {
+                'room_state': room.to_dict()
+            }, room=room_id)
+            time.sleep(0.1)  # Very short delay
+            
+            # Receive dealer's remaining cards - Use lock
+            while True:
+                try:
+                    with room.tcp_lock:
+                        result, card = receive_card(room.tcp_socket)
+                    
+                    if result == RESULT_NOT_OVER:
+                        # Add card to dealer hand
+                        if len(room.dealer_hand) >= 2 and room.dealer_hand[1] is None:
+                            room.dealer_hand[1] = card  # Reveal hidden card
+                            socketio.emit('multiplayer_dealer_reveal', {
+                                'card': {'rank': card.rank, 'suit': card.suit},
+                                'room_state': room.to_dict()
+                            }, room=room_id)
+                        else:
+                            room.dealer_hand.append(card)
+                            socketio.emit('multiplayer_dealer_hit', {
+                                'card': {'rank': card.rank, 'suit': card.suit},
+                                'room_state': room.to_dict()
+                            }, room=room_id)
+                        
+                        room.dealer_value = calculate_hand_value([c for c in room.dealer_hand if c])
+                        print(f"[MULTIPLAYER] Dealer card: {card.rank}/{card.suit}, value: {room.dealer_value}")
+                        time.sleep(0.05)  # Very fast
+                    else:
+                        # Game over for this round
+                        print(f"[MULTIPLAYER] Dealer finished, result code: {result}")
+                        break
+                        
+                except Exception as e:
+                    print(f"[ERROR] Error receiving dealer card: {e}")
+                    break
+            
+            # ========== CALCULATE RESULTS ==========
+            room.game_status = 'round_over'
+            dealer_final = calculate_hand_value([c for c in room.dealer_hand if c])
+            dealer_busted = dealer_final > 21
+            
+            print(f"[MULTIPLAYER] Calculating results - Dealer: {dealer_final}, Busted: {dealer_busted}")
+            
+            for player_sid in room.player_order:
+                player = room.players.get(player_sid)
+                if not player:
+                    continue
+                
+                # Determine result
+                if player.status == 'bust':
+                    player.result = 'loss'
+                elif dealer_busted:
+                    player.result = 'win'
+                elif player.hand_value > dealer_final:
+                    player.result = 'win'
+                elif player.hand_value < dealer_final:
+                    player.result = 'loss'
+                else:
+                    player.result = 'tie'
+                
+                print(f"[MULTIPLAYER] {player.name}: {player.hand_value} vs Dealer {dealer_final} = {player.result}")
+                
+                # Update chips for casino mode
+                if room.is_casino:
+                    if player.result == 'win':
+                        is_blackjack = player.status == 'blackjack'
+                        if is_blackjack:
+                            winnings = int(player.current_bet * BLACKJACK_MULTIPLIER) + player.current_bet
+                        else:
+                            winnings = player.current_bet * 2
+                        player.chips += winnings
+                    elif player.result == 'tie':
+                        player.chips += player.current_bet  # Return bet
+                    # Loss: bet already deducted
+                
+                # Update stats
+                result_code = RESULT_WIN if player.result == 'win' else (RESULT_LOSS if player.result == 'loss' else RESULT_TIE)
+                room.stats[player.session_id].update_after_round(
+                    result_code, player.hand, room.dealer_hand,
+                    player.current_bet if room.is_casino else 0
+                )
+            
+            # Send round results
+            socketio.emit('multiplayer_round_results', {
+                'dealer_value': dealer_final,
+                'dealer_busted': dealer_busted,
+                'room_state': room.to_dict()
+            }, room=room_id)
+            
+            print(f"[MULTIPLAYER] ========== ROUND {round_num} COMPLETE ==========")
+            time.sleep(1.5)  # REDUCED from 3.0 - still need time to see results
+        
+        # ========== GAME FINISHED ==========
+        room.game_status = 'finished'
+        print(f"[MULTIPLAYER] ========== GAME FINISHED ==========")
+        
+        # Prepare final stats for all players
+        final_stats = {}
+        for sid, stats in room.stats.items():
+            final_stats[sid] = stats.to_dict(MODE_MULTIPLAYER)
+        
+        # Determine winner(s)
+        if room.is_casino:
+            # Winner is player with most chips
+            winner_sid = max(room.players.keys(), key=lambda sid: room.players[sid].chips)
+            winner = room.players[winner_sid]
+        else:
+            # Winner is player with most wins
+            winner_sid = max(room.stats.keys(), key=lambda sid: room.stats[sid].wins)
+            winner = room.players.get(winner_sid)
+        
+        socketio.emit('multiplayer_game_finished', {
+            'stats': final_stats,
+            'winner': {
+                'id': winner_sid,
+                'name': winner.name if winner else 'Unknown',
+                'character': winner.character if winner else 'gaya'
+            },
+            'room_state': room.to_dict()
+        }, room=room_id)
+        
+    except Exception as e:
+        print(f"[ERROR] Multiplayer game error: {e}")
+        import traceback
+        traceback.print_exc()
+        socketio.emit('error', {'message': f'Game error: {str(e)}'}, room=room_id)
+    finally:
+        # Cleanup
+        if room and room.tcp_socket:
+            try:
+                room.tcp_socket.close()
+            except:
+                pass
+        print(f"[MULTIPLAYER] Game loop ended for room {room_id}")
+
+
+@socketio.on('multiplayer_decision')
+def handle_multiplayer_decision(data):
+    """Handle player decision in multiplayer - FIXED"""
+    from flask import request
+    session_id = request.sid
+    
+    if session_id not in player_rooms:
+        emit('error', {'message': 'Not in a room'})
+        return
+    
+    room_id = player_rooms[session_id]
+    room = game_rooms.get(room_id)
+    
+    if not room or session_id not in room.players:
+        emit('error', {'message': 'Room or player not found'})
+        return
+    
+    player = room.players[session_id]
+    current_player = room.get_current_player()
+    
+    # Only current player can make decisions
+    if not current_player or current_player.session_id != session_id:
+        emit('error', {'message': 'Not your turn!'})
+        return
+    
+    if player.status != 'playing':
+        emit('error', {'message': 'Cannot make decision now'})
+        return
+    
+    decision = data.get('decision')
+    print(f"[MULTIPLAYER] {player.name} decision received: {decision}")
+    
+    # FIX: Only store decision, don't read from TCP here
+    # The multiplayer_game_loop will process it and read the card
+    if decision in ['Stand', 'Hittt']:
+        player.pending_decision = decision
+        print(f"[MULTIPLAYER] Stored decision for {player.name}: {decision}")
+    else:
+        emit('error', {'message': f'Invalid decision: {decision}'})
+
+
+@socketio.on('multiplayer_place_bet')
+def handle_multiplayer_bet(data):
+    """Handle bet placement in multiplayer casino mode"""
+    from flask import request
+    session_id = request.sid
+    
+    if session_id not in player_rooms:
+        emit('error', {'message': 'Not in a room'})
+        return
+    
+    room_id = player_rooms[session_id]
+    room = game_rooms.get(room_id)
+    
+    if not room or session_id not in room.players:
+        emit('error', {'message': 'Room or player not found'})
+        return
+    
+    if room.game_status != 'betting':
+        emit('error', {'message': 'Not in betting phase'})
+        return
+    
+    player = room.players[session_id]
+    bet_amount = data.get('bet', 0)
+    
+    # Validate bet
+    if bet_amount < MIN_BET:
+        emit('error', {'message': f'Minimum bet is ${MIN_BET}'})
+        return
+    
+    if bet_amount > player.chips:
+        emit('error', {'message': 'Not enough chips!'})
+        return
+    
+    if bet_amount > MAX_BET:
+        bet_amount = MAX_BET
+    
+    # Place the bet
+    player.current_bet = bet_amount
+    player.chips -= bet_amount
+    player.bet_placed = True
+    
+    print(f"[MULTIPLAYER] {player.name} bet ${bet_amount}, remaining: ${player.chips}")
+    
+    # Notify all players
+    socketio.emit('multiplayer_player_bet', {
+        'player_id': session_id,
+        'player_name': player.name,
+        'bet_amount': bet_amount,
+        'remaining_chips': player.chips,
+        'room_state': room.to_dict()
+    }, room=room_id)
+    
+    # Check if all players have bet
+    all_bet = all(p.bet_placed for p in room.players.values() if p.chips >= MIN_BET)
+    if all_bet:
+        socketio.emit('multiplayer_all_bets_placed', {
+            'room_state': room.to_dict()
+        }, room=room_id)
 
 
 @app.route('/')

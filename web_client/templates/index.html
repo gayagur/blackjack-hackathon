@@ -21,7 +21,16 @@
                     <div class="logo-text">BLACKJACK</div>
                     <div class="logo-subtitle">Professional Casino</div>
                 </div>
-                <div class="card-showcase">
+                
+                <!-- Video Container (shows first, then hides) -->
+                <div id="welcome-video-container" class="welcome-video-container">
+                    <video id="welcome-video" autoplay muted playsinline>
+                        <source src="/assests/welcome.mp4" type="video/mp4">
+                    </video>
+                </div>
+                
+                <!-- Card Showcase (hidden initially, shows after video) -->
+                <div class="card-showcase" id="card-showcase" style="display: none;">
                     <div class="showcase-card" data-suit="spades">
                         <span class="card-rank">A</span>
                         <span class="card-suit">♠</span>
@@ -70,6 +79,11 @@
                             <div class="mode-title">BOT MODE</div>
                             <div class="mode-description">AI plays automatically</div>
                         </div>
+                        <div class="mode-card" onclick="selectGameMode(4)">
+                            <div class="mode-icon">👥</div>
+                            <div class="mode-title">MULTIPLAYER</div>
+                            <div class="mode-description">Play with 2-4 friends</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -105,6 +119,357 @@
                         <div class="dealer-label">Dealer: YOSSI</div>
                         <img src="/assests/yossi.png" alt="Yossi" class="dealer-image" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27120%27 height=%27120%27%3E%3Crect fill=%27%23ccc%27 width=%27120%27 height=%27120%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27%3EYOSSI%3C/text%3E%3C/svg%3E'">
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Multiplayer Lobby Screen -->
+        <!-- Multiplayer Lobby Screen - BEAUTIFUL VERSION -->
+        <div id="multiplayer-lobby-screen" class="screen">
+            <div class="lobby-container">
+                <!-- Decorative Header -->
+                <div class="lobby-header">
+                    <div class="lobby-icon">👥</div>
+                    <h1 class="lobby-title">MULTIPLAYER LOBBY</h1>
+                    <div class="lobby-subtitle">Play with friends!</div>
+                    <div class="header-decoration"></div>
+                </div>
+                
+                <!-- Tabs -->
+                <div class="lobby-tabs">
+                    <button class="lobby-tab active" id="tab-create" onclick="showCreateRoom()">
+                        <span class="tab-icon">🎮</span>
+                        <span class="tab-text">CREATE ROOM</span>
+                    </button>
+                    <button class="lobby-tab" id="tab-join" onclick="showJoinRoom()">
+                        <span class="tab-icon">🚪</span>
+                        <span class="tab-text">JOIN ROOM</span>
+                    </button>
+                </div>
+                
+                <!-- Create Room Section -->
+                <div id="create-room-section" class="lobby-section">
+                    <div class="lobby-card">
+                        <!-- Player Info -->
+                        <div class="lobby-section-group">
+                            <div class="section-icon">👤</div>
+                            <div class="section-content">
+                                <label class="input-label">Your Name</label>
+                                <input type="text" id="host-name" class="lobby-input" placeholder="Enter your name" maxlength="15">
+                            </div>
+                        </div>
+                        
+                        <!-- Game Settings -->
+                        <div class="lobby-section-group">
+                            <div class="section-icon">⚙️</div>
+                            <div class="section-content">
+                                <label class="input-label">Game Settings</label>
+                                <div class="settings-row">
+                                    <div class="setting-item">
+                                        <span class="setting-label">Rounds:</span>
+                                        <div class="number-input">
+                                            <button class="num-btn minus" onclick="changeRounds(-1)">−</button>
+                                            <input type="number" id="mp-rounds" value="5" min="1" max="10" readonly>
+                                            <button class="num-btn plus" onclick="changeRounds(1)">+</button>
+                                        </div>
+                                    </div>
+                                    <div class="setting-item">
+                                        <label class="toggle-container">
+                                            <input type="checkbox" id="mp-casino-mode">
+                                            <span class="toggle-slider"></span>
+                                            <span class="toggle-label">🎰 Casino Mode</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Server Selection -->
+                        <div class="lobby-section-group server-section">
+                            <div class="section-icon">🌐</div>
+                            <div class="section-content">
+                                <label class="input-label">Select Server</label>
+                                <button class="scan-servers-btn" onclick="scanServersForRoom()">
+                                    <span class="scan-icon">📡</span>
+                                    <span class="scan-text">SCAN FOR SERVERS</span>
+                                    <span class="scan-pulse"></span>
+                                </button>
+                                <div id="room-server-list" class="server-list">
+                                    <div class="server-placeholder">
+                                        <span class="placeholder-icon">🔍</span>
+                                        <span>Click scan to find available servers</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Create Button -->
+                    <button class="create-room-btn" id="create-room-btn" onclick="createRoom()" disabled>
+                        <span class="btn-icon">⚠️</span>
+                        <span class="btn-text">SELECT SERVER FIRST</span>
+                    </button>
+                </div>
+                
+                <!-- Join Room Section -->
+                <div id="join-room-section" class="lobby-section" style="display:none;">
+                    <div class="lobby-card">
+                        <!-- Player Info -->
+                        <div class="lobby-section-group">
+                            <div class="section-icon">👤</div>
+                            <div class="section-content">
+                                <label class="input-label">Your Name</label>
+                                <input type="text" id="join-name" class="lobby-input" placeholder="Enter your name" maxlength="15">
+                            </div>
+                        </div>
+                        
+                        <!-- Room Code -->
+                        <div class="lobby-section-group">
+                            <div class="section-icon">🔑</div>
+                            <div class="section-content">
+                                <label class="input-label">Room Code</label>
+                                <input type="text" id="room-code" class="lobby-input room-code-input" placeholder="XXXXXXXX" maxlength="8" style="text-transform: uppercase;">
+                                <div class="input-hint">Enter the 8-character room code from your friend</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Join Button -->
+                    <button class="join-room-btn" onclick="joinRoom()">
+                        <span class="btn-icon">🚪</span>
+                        <span class="btn-text">JOIN ROOM</span>
+                    </button>
+                </div>
+                
+                <!-- Back Button -->
+                <button class="back-btn" onclick="goToGameModeSelection()">
+                    <span>← Back to Game Modes</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Multiplayer Waiting Room -->
+        <div id="multiplayer-room-screen" class="screen">
+            <!-- Exit Button - Top Right Corner -->
+            <button class="mp-exit-btn" onclick="showExitConfirmation()">
+                <span class="exit-icon">✕</span>
+                <span class="exit-text">Leave Room</span>
+            </button>
+            
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>🎰 ROOM: <span id="room-code-display">XXXXX</span></h2>
+                    <div class="header-decoration"></div>
+                </div>
+                <div class="panel-content">
+                    <!-- Players List -->
+                    <div class="players-list" id="players-list">
+                        <!-- Players will be added dynamically -->
+                    </div>
+                    
+                    <!-- Room Info -->
+                    <div class="room-info">
+                        <span id="player-count">1/4 Players</span>
+                        <span id="rounds-info">5 Rounds</span>
+                        <span id="room-server-info" style="display: none;">Server: Unknown</span>
+                    </div>
+                    
+                    <!-- Ready Button -->
+                    <button class="ready-btn" id="ready-btn" onclick="toggleReady()">
+                        ✋ READY
+                    </button>
+                    
+                    <!-- Start Button (Host Only) -->
+                    <button class="start-game-btn" id="start-game-btn" onclick="startMultiplayerGame()" style="display:none;">
+                        🎮 START GAME
+                    </button>
+                    
+                    <!-- Leave Button -->
+                    <button class="leave-btn" onclick="leaveRoom()">
+                        🚪 LEAVE ROOM
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Multiplayer Game Screen - BEAUTIFUL VERSION -->
+        <div id="multiplayer-game-screen" class="screen">
+            <!-- Exit Button - Top Right Corner -->
+            <button class="mp-exit-btn" id="mp-exit-btn" onclick="showExitConfirmation()">
+                <span class="exit-icon">✕</span>
+                <span class="exit-text">Leave Game</span>
+            </button>
+            
+            <!-- Live Score Display - Left Side -->
+            <div class="mp-live-score-panel">
+                <div class="score-panel-header">📊 SCORE</div>
+                <div class="score-panel-content" id="mp-live-score-content">
+                    <!-- Player scores will be dynamically added here -->
+                </div>
+            </div>
+            
+            <div class="game-container">
+                <!-- Round Header -->
+                <div class="round-header" id="mp-round-header">
+                    <span class="round-text">Round <span id="mp-current-round">1</span> of <span id="mp-total-rounds">5</span></span>
+                </div>
+                
+                <!-- Turn Indicator -->
+                <div class="mp-turn-banner" id="mp-turn-banner" style="display: none;">
+                    <span id="mp-turn-text">Waiting...</span>
+                </div>
+                
+                <!-- Dealer Section - Same as single player -->
+                <div class="dealer-section">
+                    <div class="section-header">
+                        <img src="/assests/yossi.png" class="character-avatar dealer-avatar" onerror="this.style.display='none'">
+                        <span class="section-title">DEALER</span>
+                    </div>
+                    <div class="cards-container" id="mp-dealer-cards">
+                        <!-- Dealer cards appear here -->
+                    </div>
+                    <div class="hand-value" id="mp-dealer-value">Value: ?</div>
+                    <!-- Loading indicator for dealing -->
+                    <div id="mp-dealing-loading" class="dealing-loading" style="display: none;">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">Dealing cards...</div>
+                    </div>
+                </div>
+                
+                <!-- Table Background -->
+                <div class="mp-table-background">
+                    <div class="table-surface"></div>
+                </div>
+                
+                <!-- Players Circle Section -->
+                <div class="mp-players-circle" id="mp-players-circle">
+                    <!-- Player boxes arranged in a semi-circle -->
+                </div>
+                
+                <!-- Round Winner Banner -->
+                <div id="mp-round-winner-banner" class="mp-round-winner-banner" style="display: none;">
+                    <div class="winner-banner-content">
+                        <div class="winner-icon" id="mp-winner-icon">🎉</div>
+                        <div class="winner-text" id="mp-winner-text">Round Winner!</div>
+                        <div class="winner-details" id="mp-winner-details"></div>
+                        <button class="winner-close-btn" onclick="hideRoundWinnerBanner()">Continue</button>
+                    </div>
+                </div>
+                
+                <!-- Current Player Controls - BEAUTIFUL VERSION -->
+                <div class="mp-controls-container" id="mp-controls" style="display: none;">
+                    <div class="your-turn-banner">
+                        <span class="turn-icon">🎯</span>
+                        <span class="turn-text">YOUR TURN!</span>
+                    </div>
+                    
+                    <div class="mp-action-buttons">
+                        <button class="mp-action-btn hit-btn" onclick="mpHit()">
+                            <div class="btn-glow"></div>
+                            <span class="btn-icon">👊</span>
+                            <span class="btn-label">HIT</span>
+                            <span class="btn-hint">Draw a card</span>
+                        </button>
+                        
+                        <button class="mp-action-btn stand-btn" onclick="mpStand()">
+                            <div class="btn-glow"></div>
+                            <span class="btn-icon">✋</span>
+                            <span class="btn-label">STAND</span>
+                            <span class="btn-hint">Keep your hand</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Waiting Message -->
+                <div class="mp-waiting-message" id="mp-waiting-message" style="display: none;">
+                    <div class="waiting-spinner"></div>
+                    <span>Waiting for <span id="mp-waiting-player">other player</span>...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Multiplayer Betting Phase Screen -->
+        <div id="mp-betting-overlay" class="mp-betting-overlay" style="display: none;">
+            <div class="mp-betting-container">
+                <div class="mp-betting-header">
+                    <h2>🎰 Place Your Bets!</h2>
+                    <div class="mp-round-info">Round <span id="mp-bet-round">1</span> of <span id="mp-bet-total">5</span></div>
+                </div>
+                
+                <!-- Your Betting Section -->
+                <div class="mp-your-bet-section">
+                    <div class="mp-your-chips">
+                        <div class="section-title">YOUR CHIPS</div>
+                        <div class="chip-stacks" id="mp-balance-chips">
+                            <!-- Chip visualization here -->
+                        </div>
+                        <div class="balance-total">
+                            <span class="balance-label">Balance:</span>
+                            <span class="balance-amount" id="mp-chip-balance">$1,000</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Betting Area -->
+                    <div class="mp-betting-area">
+                        <div class="bet-title">YOUR BET</div>
+                        
+                        <!-- Bet Chips Display -->
+                        <div class="bet-chips-container">
+                            <div class="bet-chips" id="mp-bet-chips">
+                                <div class="empty-bet">Click chips to bet</div>
+                            </div>
+                            <div class="bet-total" id="mp-bet-total-amount">$0</div>
+                        </div>
+                        
+                        <!-- Chip Buttons -->
+                        <div class="chip-buttons">
+                            <button class="chip-btn chip-btn-red" onclick="mpAddToBet(10)" data-value="10">
+                                <span class="chip-btn-value">$10</span>
+                            </button>
+                            <button class="chip-btn chip-btn-blue" onclick="mpAddToBet(25)" data-value="25">
+                                <span class="chip-btn-value">$25</span>
+                            </button>
+                            <button class="chip-btn chip-btn-green" onclick="mpAddToBet(50)" data-value="50">
+                                <span class="chip-btn-value">$50</span>
+                            </button>
+                            <button class="chip-btn chip-btn-gold" onclick="mpAddToBet(100)" data-value="100">
+                                <span class="chip-btn-value">$100</span>
+                            </button>
+                            <button class="chip-btn chip-btn-purple" onclick="mpAddToBet(500)" data-value="500">
+                                <span class="chip-btn-value">$500</span>
+                            </button>
+                        </div>
+                        
+                        <!-- Bet Controls -->
+                        <div class="bet-controls">
+                            <button class="bet-control-btn clear-btn" onclick="mpClearBet()">
+                                <span>🗑️ CLEAR</span>
+                            </button>
+                            <button class="bet-control-btn allin-btn" onclick="mpAllIn()">
+                                <span>💰 ALL IN</span>
+                            </button>
+                        </div>
+                        
+                        <!-- Confirm Bet Button -->
+                        <button class="place-bet-btn" id="mp-place-bet-btn" onclick="mpConfirmBet()">
+                            <span class="btn-text">PLACE BET</span>
+                            <span class="btn-amount" id="mp-btn-bet-amount">$0</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Other Players Betting Status -->
+                <div class="mp-others-betting">
+                    <div class="section-title">OTHER PLAYERS</div>
+                    <div class="mp-betting-players" id="mp-betting-players">
+                        <!-- Other players' betting status -->
+                    </div>
+                </div>
+                
+                <!-- Timer -->
+                <div class="mp-bet-timer">
+                    <div class="timer-bar" id="mp-timer-bar"></div>
+                    <span id="mp-timer-text">45s</span>
                 </div>
             </div>
         </div>
@@ -578,6 +943,23 @@
             <div class="stats-footer">
                 <button class="btn-play-again" onclick="playAgainFromStats()">🎮 Play Again</button>
                 <button class="btn-home" onclick="goHome()">🏠 Home</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Exit Confirmation Modal -->
+    <div id="exit-confirmation-modal" class="modal-overlay" style="display: none;">
+        <div class="exit-modal">
+            <div class="exit-modal-icon">🚪</div>
+            <h3>Leave Game?</h3>
+            <p>Are you sure you want to leave? Your progress in this game will be lost.</p>
+            <div class="exit-modal-buttons">
+                <button class="exit-cancel-btn" onclick="hideExitConfirmation()">
+                    <span>Cancel</span>
+                </button>
+                <button class="exit-confirm-btn" onclick="confirmExitGame()">
+                    <span>Leave Game</span>
+                </button>
             </div>
         </div>
     </div>
