@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎰 Blackjack - Professional Casino</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-animation"></div>
+    
+    <div class="container">
+        <!-- Welcome Screen -->
+        <div id="welcome-screen" class="screen active">
+            <div class="welcome-content">
+                <div class="logo-container">
+                    <div class="logo-text">BLACKJACK</div>
+                    <div class="logo-subtitle">Professional Casino</div>
+                </div>
+                <div class="card-showcase">
+                    <div class="showcase-card" data-suit="spades">
+                        <span class="card-rank">A</span>
+                        <span class="card-suit">♠</span>
+                    </div>
+                    <div class="showcase-card" data-suit="hearts">
+                        <span class="card-rank">K</span>
+                        <span class="card-suit">♥</span>
+                    </div>
+                    <div class="showcase-card" data-suit="diamonds">
+                        <span class="card-rank">Q</span>
+                        <span class="card-suit">♦</span>
+                    </div>
+                    <div class="showcase-card" data-suit="clubs">
+                        <span class="card-rank">J</span>
+                        <span class="card-suit">♣</span>
+                    </div>
+                </div>
+                <button class="start-button" onclick="showGameModeSelection()">
+                    <span class="button-glow"></span>
+                    <span class="button-text">START GAME</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Mode Selection -->
+        <div id="game-mode-screen" class="screen">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>🎮 CHOOSE GAME MODE</h2>
+                    <div class="header-decoration"></div>
+                </div>
+                <div class="panel-content">
+                    <div class="mode-selection">
+                        <div class="mode-card" onclick="selectGameMode(1)">
+                            <div class="mode-icon">🎮</div>
+                            <div class="mode-title">CLASSIC MODE</div>
+                            <div class="mode-description">Simple Blackjack - Hit or Stand</div>
+                        </div>
+                        <div class="mode-card" onclick="selectGameMode(2)">
+                            <div class="mode-icon">🎰</div>
+                            <div class="mode-title">CASINO MODE</div>
+                            <div class="mode-description">Betting system with chips</div>
+                        </div>
+                        <div class="mode-card" onclick="selectGameMode(3)">
+                            <div class="mode-icon">🤖</div>
+                            <div class="mode-title">BOT MODE</div>
+                            <div class="mode-description">AI plays automatically</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Character Selection -->
+        <div id="character-screen" class="screen">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>👤 CHOOSE YOUR CHARACTER</h2>
+                    <div class="header-decoration"></div>
+                </div>
+                <div class="panel-content">
+                    <div class="character-selection">
+                        <div class="character-card" onclick="selectCharacter('gaya')">
+                            <img src="/assests/gaya.png" alt="Gaya" class="character-image" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27150%27 height=%27150%27%3E%3Crect fill=%27%23ccc%27 width=%27150%27 height=%27150%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27%3EGAYA%3C/text%3E%3C/svg%3E'">
+                            <div class="character-name">GAYA</div>
+                        </div>
+                        <div class="character-card" onclick="selectCharacter('matias')">
+                            <img src="/assests/matias.png" alt="Matias" class="character-image" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27150%27 height=%27150%27%3E%3Crect fill=%27%23ccc%27 width=%27150%27 height=%27150%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27%3EMATIAS%3C/text%3E%3C/svg%3E'">
+                            <div class="character-name">MATIAS</div>
+                        </div>
+                        <div class="character-card" onclick="selectCharacter('naveh')">
+                            <img src="/assests/naveh.png" alt="Naveh" class="character-image" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27150%27 height=%27150%27%3E%3Crect fill=%27%23ccc%27 width=%27150%27 height=%27150%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27%3ENAVEH%3C/text%3E%3C/svg%3E'">
+                            <div class="character-name">NAVEH</div>
+                        </div>
+                        <div class="character-card" onclick="selectCharacter('nadav')">
+                            <img src="/assests/nadav.png" alt="Nadav" class="character-image" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27150%27 height=%27150%27%3E%3Crect fill=%27%23ccc%27 width=%27150%27 height=%27150%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27%3ENADAV%3C/text%3E%3C/svg%3E'">
+                            <div class="character-name">NADAV</div>
+                        </div>
+                    </div>
+                    <div class="dealer-info">
+                        <div class="dealer-label">Dealer: YOSSI</div>
+                        <img src="/assests/yossi.png" alt="Yossi" class="dealer-image" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27120%27 height=%27120%27%3E%3Crect fill=%27%23ccc%27 width=%27120%27 height=%27120%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27%3EYOSSI%3C/text%3E%3C/svg%3E'">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Server Selection -->
+        <div id="server-screen" class="screen">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>🎲 SERVER SELECTION</h2>
+                    <div class="header-decoration"></div>
+                </div>
+                <div class="panel-content">
+                    <button class="scan-button" onclick="scanServers()">
+                        <span class="scan-icon">🔍</span>
+                        <span>SCAN FOR SERVERS</span>
+                    </button>
+                    <div id="servers-list" class="servers-list"></div>
+                    <div id="rounds-input" class="rounds-input" style="display:none;">
+                        <label>Number of Rounds:</label>
+                        <input type="number" id="num-rounds" min="1" max="255" value="1">
+                        <button class="connect-button" onclick="connectToServer()">CONNECT</button>
+                    </div>
+                    <div id="status-message" class="status-message"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen">
+            <div class="game-container">
+                <!-- Round Header -->
+                <div id="round-header" class="round-header"></div>
+
+                <!-- Live Score Banner (Always Visible) -->
+                <div id="live-score-banner" class="live-score-banner">
+                    <div class="live-score-content">
+                        <div class="live-score-item dealer-live-score">
+                            <span class="live-score-label">DEALER</span>
+                            <span class="live-score-value" id="live-dealer-score">0</span>
+                        </div>
+                        <div class="live-score-separator">VS</div>
+                        <div class="live-score-item player-live-score">
+                            <span class="live-score-label">YOU</span>
+                            <span class="live-score-value" id="live-player-score">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dealer Section -->
+                <div class="hand-section dealer-section">
+                    <div class="section-label">
+                        <div class="character-display dealer-character">
+                            <img id="dealer-character-img" src="/assests/yossi.png" alt="Yossi" class="character-avatar">
+                            <span class="label-text">DEALER - YOSSI</span>
+                        </div>
+                    </div>
+                    <div id="dealer-hand" class="cards-container"></div>
+                    <div id="dealer-value" class="hand-value"></div>
+                </div>
+
+                <!-- Round Result Banner -->
+                <div id="round-result-banner" class="round-result-banner hidden">
+                    <div class="result-content">
+                        <div class="result-icon" id="result-icon">🎉</div>
+                        <div class="result-text">
+                            <div class="result-title" id="result-title">YOU WIN!</div>
+                            <div class="result-details" id="result-details">Player: 21 vs Dealer: 18</div>
+                        </div>
+                        <div class="score-display">
+                            <div class="score-item dealer-score">
+                                <span class="score-label">DEALER</span>
+                                <span class="score-value" id="dealer-score">0</span>
+                            </div>
+                            <div class="score-separator">VS</div>
+                            <div class="score-item player-score">
+                                <span class="score-label">YOU</span>
+                                <span class="score-value" id="player-score">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="next-round-btn" id="next-round-btn" onclick="hideRoundBanner()">
+                        <span>NEXT ROUND →</span>
+                    </button>
+                </div>
+
+                <!-- VS Divider -->
+                <div class="vs-divider">
+                    <div class="vs-line"></div>
+                    <div class="vs-text">VS</div>
+                    <div class="vs-line"></div>
+                </div>
+
+                <!-- Player Section -->
+                <div class="hand-section player-section">
+                    <div class="section-label">
+                        <div class="character-display player-character">
+                            <img id="player-character-img" src="/assests/gaya.png" alt="Player" class="character-avatar">
+                            <span class="label-text" id="player-character-name">YOU</span>
+                        </div>
+                    </div>
+                    <div id="player-hand" class="cards-container"></div>
+                    <div id="player-value" class="hand-value"></div>
+                </div>
+
+                <!-- Casino Mode: Betting -->
+                <div id="betting-panel" class="betting-panel" style="display:none;">
+                    <!-- Player's Chip Balance -->
+                    <div class="chip-balance-section">
+                        <div class="section-title">YOUR CHIPS</div>
+                        <div class="chip-stacks" id="balance-chips">
+                            <!-- Chips will be generated dynamically -->
+                        </div>
+                        <div class="balance-total">
+                            <span class="balance-label">Balance:</span>
+                            <span class="balance-amount" id="chip-balance">$1,000</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Betting Area -->
+                    <div class="betting-area">
+                        <div class="bet-title">PLACE YOUR BET</div>
+                        
+                        <!-- Current Bet Chips -->
+                        <div class="bet-chips-container">
+                            <div class="bet-chips" id="bet-chips">
+                                <!-- Bet chips will appear here -->
+                            </div>
+                            <div class="bet-total" id="bet-total">$0</div>
+                        </div>
+                        
+                        <!-- Quick Bet Buttons (Chip Buttons) -->
+                        <div class="chip-buttons">
+                            <button class="chip-btn chip-btn-red" onclick="addToBet(10)" data-value="10">
+                                <span class="chip-btn-value">$10</span>
+                            </button>
+                            <button class="chip-btn chip-btn-blue" onclick="addToBet(25)" data-value="25">
+                                <span class="chip-btn-value">$25</span>
+                            </button>
+                            <button class="chip-btn chip-btn-green" onclick="addToBet(50)" data-value="50">
+                                <span class="chip-btn-value">$50</span>
+                            </button>
+                            <button class="chip-btn chip-btn-gold" onclick="addToBet(100)" data-value="100">
+                                <span class="chip-btn-value">$100</span>
+                            </button>
+                            <button class="chip-btn chip-btn-purple" onclick="addToBet(500)" data-value="500">
+                                <span class="chip-btn-value">$500</span>
+                            </button>
+                        </div>
+                        
+                        <!-- Bet Controls -->
+                        <div class="bet-controls">
+                            <button class="bet-control-btn clear-btn" onclick="clearBet()">
+                                <span>🗑️ CLEAR</span>
+                            </button>
+                            <button class="bet-control-btn allin-btn" onclick="allIn()">
+                                <span>💰 ALL IN</span>
+                            </button>
+                        </div>
+                        
+                        <!-- Slider for fine control -->
+                        <div class="bet-slider-container">
+                            <input type="range" id="bet-slider" class="bet-slider" min="10" max="1000" value="10" step="5">
+                            <div class="slider-labels">
+                                <span>$10</span>
+                                <span id="max-bet-label">$1000</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Place Bet Button -->
+                        <button class="place-bet-btn" onclick="placeBet()" id="place-bet-btn">
+                            <span class="btn-text">DEAL CARDS</span>
+                            <span class="btn-amount" id="btn-bet-amount">$10</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Game Controls -->
+                <div id="controls" class="game-controls" style="display:none;">
+                    <button class="control-button hit-button" onclick="makeDecision('Hittt')" id="hit-btn">
+                        <div class="button-inner">
+                            <span class="button-icon">👊</span>
+                            <span class="button-label">HIT</span>
+                        </div>
+                        <div class="button-shine"></div>
+                    </button>
+                    <button class="control-button stand-button" onclick="makeDecision('Stand')" id="stand-btn">
+                        <div class="button-inner">
+                            <span class="button-icon">🛑</span>
+                            <span class="button-label">STAND</span>
+                        </div>
+                        <div class="button-shine"></div>
+                    </button>
+                    <button class="control-button double-button" onclick="makeDecision('DoubleDown')" id="double-btn" style="display:none;">
+                        <div class="button-inner">
+                            <span class="button-icon">💰</span>
+                            <span class="button-label">DOUBLE</span>
+                        </div>
+                        <div class="button-shine"></div>
+                    </button>
+                </div>
+
+                <!-- Bot Mode: Decision Display -->
+                <div id="bot-decision" class="bot-decision" style="display:none;">
+                    <div class="bot-thinking">🤖 Bot is thinking...</div>
+                    <div class="bot-reason" id="bot-reason"></div>
+                </div>
+
+                <!-- Game Messages -->
+                <div id="game-message" class="game-message"></div>
+            </div>
+        </div>
+
+        <!-- Result Screen -->
+        <div id="result-screen" class="screen">
+            <div class="result-container" id="result-container">
+                <div class="result-animation" id="result-animation"></div>
+                <div class="result-content" id="result-content"></div>
+                <button class="play-again-button" onclick="playAgain()">
+                    <span>PLAY AGAIN</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Statistics Screen -->
+        <div id="stats-screen" class="screen">
+            <div class="panel stats-panel">
+                <div class="panel-header">
+                    <h2>📊 GAME STATISTICS</h2>
+                    <div class="header-decoration"></div>
+                </div>
+                <div class="panel-content" id="stats-content">
+                    <!-- Stats will be populated by JavaScript -->
+                </div>
+                <button class="play-again-button" onclick="playAgain()">
+                    <span>BACK TO MENU</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Modal -->
+    <div id="stats-modal" class="stats-modal hidden">
+        <div class="stats-container">
+            <div class="stats-header">
+                <h1 id="stats-title">🎰 GAME OVER 🎰</h1>
+                <div class="stats-subtitle">Final Statistics</div>
+            </div>
+            
+            <div class="stats-content">
+                
+                <!-- ==================== -->
+                <!-- ALL MODES: Results   -->
+                <!-- ==================== -->
+                <div class="stats-card results-card">
+                    <div class="stats-card-header">📊 Results</div>
+                    <div class="stats-grid-3">
+                        <div class="stat-box win">
+                            <span class="stat-icon">✅</span>
+                            <span class="stat-value" id="stat-wins">0</span>
+                            <span class="stat-label">Wins</span>
+                        </div>
+                        <div class="stat-box loss">
+                            <span class="stat-icon">❌</span>
+                            <span class="stat-value" id="stat-losses">0</span>
+                            <span class="stat-label">Losses</span>
+                        </div>
+                        <div class="stat-box tie">
+                            <span class="stat-icon">🤝</span>
+                            <span class="stat-value" id="stat-ties">0</span>
+                            <span class="stat-label">Ties</span>
+                        </div>
+                    </div>
+                    <div class="win-rate-container">
+                        <div class="win-rate-bar">
+                            <div class="win-rate-fill" id="win-rate-fill"></div>
+                        </div>
+                        <span class="win-rate-text" id="win-rate-text">0% Win Rate</span>
+                    </div>
+                </div>
+                
+                <!-- ==================== -->
+                <!-- ALL MODES: Streaks   -->
+                <!-- ==================== -->
+                <div class="stats-card streaks-card">
+                    <div class="stats-card-header">🔥 Streaks</div>
+                    <div class="stat-row">
+                        <span>🔥 Best Win Streak</span>
+                        <span class="stat-highlight" id="stat-win-streak">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>💀 Worst Lose Streak</span>
+                        <span class="stat-highlight" id="stat-lose-streak">0</span>
+                    </div>
+                </div>
+                
+                <!-- ==================== -->
+                <!-- ALL MODES: Hands     -->
+                <!-- ==================== -->
+                <div class="stats-card hands-card">
+                    <div class="stats-card-header">🃏 Hand Statistics</div>
+                    <div class="stat-row">
+                        <span>🎰 Blackjacks</span>
+                        <span class="stat-highlight gold" id="stat-blackjacks">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>🎯 Perfect 21s</span>
+                        <span class="stat-highlight" id="stat-perfect21">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>💥 Your Busts</span>
+                        <span class="stat-highlight red" id="stat-busts">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>💀 Dealer Busts</span>
+                        <span class="stat-highlight green" id="stat-dealer-busts">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>📊 Avg Hand Value</span>
+                        <span class="stat-highlight" id="stat-avg-hand">0</span>
+                    </div>
+                </div>
+                
+                <!-- ==================== -->
+                <!-- ALL MODES: Decisions -->
+                <!-- ==================== -->
+                <div class="stats-card decisions-card">
+                    <div class="stats-card-header">🎲 Your Decisions</div>
+                    <div class="stat-row">
+                        <span>👊 Total Hits</span>
+                        <span class="stat-highlight" id="stat-hits">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>🛑 Total Stands</span>
+                        <span class="stat-highlight" id="stat-stands">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>💥 Hits That Busted</span>
+                        <span class="stat-highlight red" id="stat-risky-hits">0</span>
+                    </div>
+                </div>
+                
+                <!-- ============================== -->
+                <!-- CASINO MODE ONLY: Chip Summary -->
+                <!-- ============================== -->
+                <div class="stats-card casino-card hidden" id="casino-stats-section">
+                    <div class="stats-card-header">💰 Chip Summary</div>
+                    <div class="chips-visual">
+                        <div class="chip-stack" id="chip-stack-display"></div>
+                        <div class="chip-total" id="chip-total">$1,000</div>
+                    </div>
+                    <div class="stat-row">
+                        <span>💵 Started With</span>
+                        <span class="stat-highlight" id="stat-start-chips">$1,000</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>📈 Highest Balance</span>
+                        <span class="stat-highlight green" id="stat-best-chips">$0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>📉 Lowest Balance</span>
+                        <span class="stat-highlight red" id="stat-worst-chips">$0</span>
+                    </div>
+                </div>
+                
+                <!-- ================================ -->
+                <!-- CASINO MODE ONLY: Profit & Loss -->
+                <!-- ================================ -->
+                <div class="stats-card profit-card hidden" id="profit-stats-section">
+                    <div class="stats-card-header">📈 Profit & Loss</div>
+                    <div class="profit-display">
+                        <div class="profit-label">Net Profit</div>
+                        <div class="profit-value" id="stat-profit">$0</div>
+                    </div>
+                    <div class="stat-row">
+                        <span>💵 Total Won</span>
+                        <span class="stat-highlight green" id="stat-total-won">$0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>💸 Total Lost</span>
+                        <span class="stat-highlight red" id="stat-total-lost">$0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>🏆 Biggest Win</span>
+                        <span class="stat-highlight gold" id="stat-biggest-win">$0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>😢 Biggest Loss</span>
+                        <span class="stat-highlight red" id="stat-biggest-loss">$0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>📊 ROI</span>
+                        <span class="stat-highlight" id="stat-roi">0%</span>
+                    </div>
+                </div>
+                
+                <!-- ================================ -->
+                <!-- CASINO MODE ONLY: Double Down   -->
+                <!-- ================================ -->
+                <div class="stats-card double-card hidden" id="double-stats-section">
+                    <div class="stats-card-header">💎 Double Down</div>
+                    <div class="stat-row">
+                        <span>💰 Times Doubled</span>
+                        <span class="stat-highlight" id="stat-doubles">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>✅ Doubles Won</span>
+                        <span class="stat-highlight green" id="stat-doubles-won">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>❌ Doubles Lost</span>
+                        <span class="stat-highlight red" id="stat-doubles-lost">0</span>
+                    </div>
+                </div>
+                
+                <!-- ============================== -->
+                <!-- BOT MODE ONLY: Bot Performance -->
+                <!-- ============================== -->
+                <div class="stats-card bot-card hidden" id="bot-stats-section">
+                    <div class="stats-card-header">🤖 Bot Performance</div>
+                    <div class="bot-comparison">
+                        <div class="bot-stat">
+                            <div class="bot-stat-label">Actual</div>
+                            <div class="bot-stat-value" id="stat-actual-rate">0%</div>
+                        </div>
+                        <div class="bot-vs">vs</div>
+                        <div class="bot-stat">
+                            <div class="bot-stat-label">Expected</div>
+                            <div class="bot-stat-value expected">42.5%</div>
+                        </div>
+                    </div>
+                    <div class="bot-diff" id="stat-vs-expected">+0% vs expected</div>
+                    <div class="stat-row">
+                        <span>🧠 Total Decisions</span>
+                        <span class="stat-highlight" id="stat-bot-decisions">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>👊 Bot Hits</span>
+                        <span class="stat-highlight" id="stat-bot-hits">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>🛑 Bot Stands</span>
+                        <span class="stat-highlight" id="stat-bot-stands">0</span>
+                    </div>
+                </div>
+                
+                <!-- ============================== -->
+                <!-- BOT MODE ONLY: Card Analysis   -->
+                <!-- ============================== -->
+                <div class="stats-card cards-card hidden" id="cards-stats-section">
+                    <div class="stats-card-header">🃏 Cards Received</div>
+                    <div class="stat-row">
+                        <span>🅰️ Aces</span>
+                        <span class="stat-highlight gold" id="stat-aces">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>👑 Face Cards (J/Q/K)</span>
+                        <span class="stat-highlight" id="stat-face-cards">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>📈 High Cards (7-10)</span>
+                        <span class="stat-highlight" id="stat-high-cards">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>📉 Low Cards (2-6)</span>
+                        <span class="stat-highlight" id="stat-low-cards">0</span>
+                    </div>
+                </div>
+                
+            </div>
+            
+            <div class="stats-footer">
+                <button class="btn-play-again" onclick="playAgainFromStats()">🎮 Play Again</button>
+                <button class="btn-home" onclick="goHome()">🏠 Home</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confetti Container -->
+    <div id="confetti-container"></div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+
