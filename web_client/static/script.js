@@ -35,7 +35,8 @@ let selectedServerForRoom = null;  // Server selected for room creation
 // ============================================
 
 socket.on('connect', (data) => {
-    console.log('Connected to web server');
+    myPlayerId = socket.id;
+    console.log('[SOCKET] Connected with ID:', myPlayerId);
     showMessage('Connected to server', 'success');
 });
 
@@ -2032,7 +2033,7 @@ function updateMultiplayerPlayers(roomState) {
         // Cards - FIX: Properly render each card
         let cardsHTML = '<div class="mp-player-cards">';
         if (player.hand && player.hand.length > 0) {
-            player.hand.forEach(card => {
+            player.hand.forEach((card, cardIndex) => {
                 if (card && card.rank !== undefined && card.suit !== undefined) {
                     // Get display values
                     const rankDisplay = getCardRankDisplay(card.rank);
@@ -2040,8 +2041,13 @@ function updateMultiplayerPlayers(roomState) {
                     const isRed = card.suit === 0 || card.suit === 1; // Diamonds=0, Hearts=1
                     const colorClass = isRed ? 'red' : 'black';
                     
+                    // Add 'dealing' class for animation during initial card dealing
+                    // Only animate during dealing phase or for the first 2 cards of each player
+                    const isDealing = roomState.game_status === 'dealing';
+                    const dealingClass = isDealing ? ' dealing' : '';
+                    
                     cardsHTML += `
-                        <div class="card ${colorClass}">
+                        <div class="card ${colorClass}${dealingClass}" style="animation-delay: ${cardIndex * 0.15}s;">
                             <div class="card-corner top-left">
                                 <div class="card-rank">${rankDisplay}</div>
                                 <div class="card-suit">${suitSymbol}</div>
@@ -2602,19 +2608,23 @@ socket.on('multiplayer_betting_phase', (data) => {
 
 // Show loading indicator when dealing starts
 socket.on('multiplayer_dealing_started', (data) => {
-    console.log('[MP] Dealing started');
+    console.log('[MP] Dealing started - showing loading indicator');
     const loadingEl = document.getElementById('mp-dealing-loading');
     if (loadingEl) {
-        loadingEl.style.display = 'block';
+        loadingEl.style.display = 'flex'; // Make sure it's visible
+        loadingEl.classList.remove('hidden');
     }
+    // Also show a message
+    console.log('[MP] Cards are being dealt, please wait...');
 });
 
 // New event: All cards dealt at once (much faster)
 socket.on('multiplayer_all_cards_dealt', (data) => {
-    console.log('[MP] All cards dealt:', data);
-    // Hide loading indicator
+    console.log('[MP] All cards dealt - hiding loading indicator');
+    // Hide loading indicator immediately
     const loadingEl = document.getElementById('mp-dealing-loading');
     if (loadingEl) {
+        loadingEl.classList.add('hidden');
         loadingEl.style.display = 'none';
     }
     // Update UI immediately with all player cards
@@ -2708,6 +2718,12 @@ socket.on('multiplayer_dealer_hit', (data) => {
     updateMultiplayerGameUI(data.room_state);
 });
 
+socket.on('multiplayer_dealer_done', (data) => {
+    console.log('[MP] Dealer done:', data.dealer_value);
+    currentRoom = data.room_state;
+    updateMultiplayerGameUI(data.room_state);
+});
+
 socket.on('multiplayer_round_results', (data) => {
     console.log('[MP] Round results:', data);
     
@@ -2727,9 +2743,24 @@ socket.on('multiplayer_round_results', (data) => {
     }
 });
 
+// ==========================================
+// MULTIPLAYER GAME FINISHED - ROBUST VERSION
+// ==========================================
+
 socket.on('multiplayer_game_finished', (data) => {
-    console.log('[MP] Game finished:', data);
-    showMultiplayerFinalStats(data);
+    console.log('[MP] ===== GAME FINISHED =====');
+    console.log('[MP] Winner:', data.winner);
+    console.log('[MP] Stats:', data.stats);
+    
+    // Hide any other overlays
+    const bettingOverlay = document.getElementById('mp-betting-overlay');
+    if (bettingOverlay) bettingOverlay.style.display = 'none';
+    
+    const controlsEl = document.getElementById('mp-controls');
+    if (controlsEl) controlsEl.style.display = 'none';
+    
+    // Show final stats modal
+    showMultiplayerFinalStats(data.stats, data.winner, data.room_state);
 });
 
 socket.on('multiplayer_state_update', (data) => {
@@ -2798,151 +2829,203 @@ socket.on('multiplayer_all_bets_placed', (data) => {
 // MULTIPLAYER FINAL STATS
 // ====================
 
-function showMultiplayerFinalStats(data) {
-    console.log('[MP] Showing final stats:', data);
+function showMultiplayerFinalStats(allStats, winner, roomState) {
+    console.log('[MP] Showing final stats modal...');
     
-    const modal = document.getElementById('stats-modal');
-    if (!modal) return;
-    
-    const stats = data.stats;
-    const roomState = data.room_state;
-    const winner = data.winner;
-    
-    // Update title
-    const title = document.getElementById('stats-title');
-    if (title) {
-        title.textContent = winner && winner.id === myPlayerId ? '🎉 YOU WON! 🎉' : '🎰 GAME OVER 🎰';
+    // Remove existing modal if any
+    let existingModal = document.getElementById('mp-final-stats-modal');
+    if (existingModal) {
+        existingModal.remove();
     }
     
-    // Get my stats
-    const myStats = stats[myPlayerId] || {};
-    
-    // Update main stats
-    document.getElementById('stat-wins').textContent = myStats.wins || 0;
-    document.getElementById('stat-losses').textContent = myStats.losses || 0;
-    document.getElementById('stat-ties').textContent = myStats.ties || 0;
-    
-    // Calculate win rate
-    const total = (myStats.wins || 0) + (myStats.losses || 0) + (myStats.ties || 0);
-    const winRate = total > 0 ? ((myStats.wins || 0) / total * 100).toFixed(1) : 0;
-    document.getElementById('win-rate-text').textContent = `${winRate}% Win Rate`;
-    document.getElementById('win-rate-fill').style.width = `${winRate}%`;
-    
-    // Streaks
-    document.getElementById('stat-win-streak').textContent = myStats.best_win_streak || 0;
-    document.getElementById('stat-lose-streak').textContent = myStats.worst_lose_streak || 0;
-    
-    // Special hands
-    document.getElementById('stat-blackjacks').textContent = myStats.blackjacks || 0;
-    document.getElementById('stat-busts').textContent = myStats.busts || 0;
-    document.getElementById('stat-dealer-busts').textContent = myStats.dealer_busts || 0;
-    
-    // Hide all mode-specific sections
-    document.querySelectorAll('.stats-card').forEach(card => {
-        if (card.id !== 'results-card' && card.id !== 'streaks-card' && card.id !== 'special-card') {
-            card.classList.add('hidden');
-        }
-    });
-    
-    // Show multiplayer stats section
-    let mpStatsHTML = `
-        <div class="stats-card" id="multiplayer-stats-section">
-            <div class="stats-card-header">👥 Multiplayer Results</div>
-            <div class="mp-stats-players">
+    // Create modal
+    const modal = document.createElement('div');
+    modal.id = 'mp-final-stats-modal';
+    modal.className = 'modal-overlay';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.95);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
     `;
     
-    // Sort players by wins (or chips in casino mode)
-    const playersList = Object.entries(roomState.players).map(([sid, player]) => {
-        const playerStats = stats[sid] || {};
-        return {
-            sid,
-            player,
-            stats: playerStats,
-            isMe: sid === myPlayerId,
-            isWinner: sid === winner.id
-        };
-    });
+    // Build players stats HTML
+    let playersHTML = '';
     
-    if (roomState.is_casino) {
-        playersList.sort((a, b) => (b.player.chips || 0) - (a.player.chips || 0));
+    if (allStats && Object.keys(allStats).length > 0) {
+        for (const [sid, stats] of Object.entries(allStats)) {
+            const player = roomState?.players?.[sid];
+            const playerName = player?.name || 'Player';
+            const playerChar = player?.character || 'gaya';
+            const isWinner = sid === winner?.id;
+            const isMe = sid === myPlayerId;
+            
+            const wins = stats?.wins || 0;
+            const losses = stats?.losses || 0;
+            const ties = stats?.ties || 0;
+            const winRate = stats?.win_rate || 0;
+            const blackjacks = stats?.blackjacks || 0;
+            const busts = stats?.busts || 0;
+            const chips = player?.chips || 0;
+            
+            playersHTML += `
+                <div style="
+                    background: ${isWinner ? 'linear-gradient(135deg, #ffd700 0%, #b8860b 100%)' : (isMe ? 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)' : 'rgba(255,255,255,0.1)')};
+                    border-radius: 15px;
+                    padding: 20px;
+                    margin: 10px;
+                    min-width: 200px;
+                    text-align: center;
+                    color: white;
+                    ${isWinner ? 'box-shadow: 0 0 30px rgba(255,215,0,0.5);' : ''}
+                ">
+                    <img src="/assests/${playerChar}.png" 
+                         style="width: 60px; height: 60px; border-radius: 50%; border: 3px solid ${isWinner ? '#fff' : '#666'};"
+                         onerror="this.src='/assests/gaya.png'">
+                    <h3 style="margin: 10px 0 5px 0; font-size: 1.2em;">
+                        ${playerName}
+                        ${isWinner ? ' 👑' : ''}
+                        ${isMe ? ' (YOU)' : ''}
+                    </h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 15px;">
+                        <div>
+                            <div style="font-size: 1.5em; font-weight: bold; color: #4ade80;">${wins}</div>
+                            <div style="font-size: 0.8em; opacity: 0.8;">Wins</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 1.5em; font-weight: bold; color: #f87171;">${losses}</div>
+                            <div style="font-size: 0.8em; opacity: 0.8;">Losses</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 1.5em; font-weight: bold; color: #fbbf24;">${ties}</div>
+                            <div style="font-size: 0.8em; opacity: 0.8;">Ties</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.2);">
+                        <div style="font-size: 0.9em;">Win Rate: <strong>${winRate.toFixed(1)}%</strong></div>
+                        <div style="font-size: 0.9em;">Blackjacks: <strong>${blackjacks}</strong></div>
+                        ${roomState?.is_casino ? `<div style="font-size: 0.9em; color: #4ade80;">Chips: <strong>$${chips.toLocaleString()}</strong></div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
     } else {
-        playersList.sort((a, b) => (b.stats.wins || 0) - (a.stats.wins || 0));
+        playersHTML = '<p style="color: #888;">No stats available</p>';
     }
     
-    playersList.forEach(({sid, player, stats: playerStats, isMe, isWinner}, index) => {
-        const rank = index + 1;
-        const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
-        
-        mpStatsHTML += `
-            <div class="mp-stat-player ${isMe ? 'is-me' : ''} ${isWinner ? 'is-winner' : ''}">
-                <div class="mp-stat-rank">${rankEmoji}</div>
-                <div class="mp-stat-avatar">
-                    <img src="/assests/${player.character || 'gaya'}.png" onerror="this.src='/assests/gaya.png'">
-                </div>
-                <div class="mp-stat-info">
-                    <div class="mp-stat-name">
-                        ${player.name}
-                        ${isMe ? '<span class="you-badge">YOU</span>' : ''}
-                        ${isWinner ? '<span class="winner-badge">🏆 WINNER</span>' : ''}
-                    </div>
-                    <div class="mp-stat-details">
-                        <div class="mp-stat-item">
-                            <span>✅ Wins:</span>
-                            <span class="stat-value">${playerStats.wins || 0}</span>
-                        </div>
-                        <div class="mp-stat-item">
-                            <span>❌ Losses:</span>
-                            <span class="stat-value">${playerStats.losses || 0}</span>
-                        </div>
-                        <div class="mp-stat-item">
-                            <span>🤝 Ties:</span>
-                            <span class="stat-value">${playerStats.ties || 0}</span>
-                        </div>
-                        ${roomState.is_casino ? `
-                        <div class="mp-stat-item">
-                            <span>💰 Chips:</span>
-                            <span class="stat-value">$${(player.chips || 0).toLocaleString()}</span>
-                        </div>
-                        ` : ''}
+    modal.innerHTML = `
+        <div style="
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 2px solid #ffd700;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            text-align: center;
+        ">
+            <h1 style="color: #ffd700; font-size: 2.5em; margin-bottom: 10px;">
+                🏆 GAME OVER 🏆
+            </h1>
+            
+            <div style="
+                background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
+                border-radius: 15px;
+                padding: 20px;
+                margin: 20px 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 15px;
+            ">
+                <img src="/assests/${winner?.character || 'gaya'}.png" 
+                     style="width: 80px; height: 80px; border-radius: 50%; border: 4px solid white;"
+                     onerror="this.src='/assests/gaya.png'">
+                <div>
+                    <div style="font-size: 1.5em; font-weight: bold; color: #1a1a2e;">
+                        ${winner?.name || 'Unknown'} WINS!
                     </div>
                 </div>
             </div>
-        `;
-    });
-    
-    mpStatsHTML += `
+            
+            <div style="display: flex; flex-wrap: wrap; justify-content: center; margin: 20px 0;">
+                ${playersHTML}
+            </div>
+            
+            <div style="margin-top: 30px; display: flex; gap: 15px; justify-content: center;">
+                <button onclick="exitMultiplayerToMenu()" style="
+                    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                    color: white;
+                    border: none;
+                    padding: 15px 40px;
+                    font-size: 1.2em;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    font-weight: bold;
+                ">
+                    🚪 Exit to Menu
+                </button>
             </div>
         </div>
     `;
     
-    // Remove old multiplayer stats if exists
-    const oldMpStats = document.getElementById('multiplayer-stats-section');
-    if (oldMpStats) {
-        oldMpStats.remove();
+    document.body.appendChild(modal);
+    
+    // Confetti for winner
+    if (winner?.id === myPlayerId) {
+        console.log('[MP] You won! Creating confetti...');
+        if (typeof createConfetti === 'function') {
+            createConfetti();
+        }
     }
     
-    // Add new multiplayer stats
-    const statsContent = document.querySelector('.stats-content');
-    if (statsContent) {
-        statsContent.insertAdjacentHTML('beforeend', mpStatsHTML);
-    }
+    console.log('[MP] Final stats modal displayed!');
+}
+
+function exitMultiplayerToMenu() {
+    console.log('[MP] Exiting to menu...');
     
-    // Show modal
-    modal.classList.remove('hidden');
-    modal.classList.add('show');
+    // Leave room
+    socket.emit('leave_room');
+    
+    // Remove modal
+    const modal = document.getElementById('mp-final-stats-modal');
+    if (modal) modal.remove();
+    
+    // Reset state
+    mpPlayerStats = {};
+    currentRoom = null;
+    
+    // Go to welcome screen
+    showScreen('welcome-screen');
 }
 
 // ====================
 // MULTIPLAYER ROUND WINNER BANNER
 // ====================
 
+let mpRoundBannerTimer = null;
+
 function showMultiplayerRoundWinnerBanner(roomState) {
     const banner = document.getElementById('mp-round-winner-banner');
     const icon = document.getElementById('mp-winner-icon');
     const text = document.getElementById('mp-winner-text');
     const details = document.getElementById('mp-winner-details');
+    const continueBtn = document.getElementById('mp-continue-btn');
     
     if (!banner) return;
+    
+    // Clear any existing timer
+    if (mpRoundBannerTimer) {
+        clearTimeout(mpRoundBannerTimer);
+        mpRoundBannerTimer = null;
+    }
     
     // Calculate winners
     const winners = [];
@@ -2996,17 +3079,40 @@ function showMultiplayerRoundWinnerBanner(roomState) {
         details.innerHTML = '<div>Better luck next round!</div>';
     }
     
+    // Show banner
     banner.style.display = 'flex';
     banner.classList.add('show');
+    
+    // Show continue button
+    if (continueBtn) {
+        continueBtn.style.display = 'block';
+    }
+    
+    // Auto-hide after 10 seconds
+    mpRoundBannerTimer = setTimeout(() => {
+        hideRoundWinnerBanner();
+    }, 10000);
 }
 
 function hideRoundWinnerBanner() {
     const banner = document.getElementById('mp-round-winner-banner');
+    const continueBtn = document.getElementById('mp-continue-btn');
+    
+    // Clear timer
+    if (mpRoundBannerTimer) {
+        clearTimeout(mpRoundBannerTimer);
+        mpRoundBannerTimer = null;
+    }
+    
     if (banner) {
         banner.classList.remove('show');
         setTimeout(() => {
             banner.style.display = 'none';
         }, 500);
+    }
+    
+    if (continueBtn) {
+        continueBtn.style.display = 'none';
     }
 }
 

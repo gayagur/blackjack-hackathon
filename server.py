@@ -102,10 +102,18 @@ def send_card(client_socket: socket.socket, card: Card, result: int):
         client_socket: The client's TCP socket
         card: The Card object to send
         result: Game result (RESULT_NOT_OVER, RESULT_WIN, RESULT_LOSS, RESULT_TIE)
+    
+    Raises:
+        ConnectionError: If the connection was lost (client disconnected)
     """
     try:
         packet = create_payload_server(result, card.rank, card.suit)
         client_socket.sendall(packet)
+    except (ConnectionResetError, ConnectionAbortedError, OSError) as e:
+        # WinError 10054, 10053, etc. - client disconnected
+        error_code = getattr(e, 'winerror', None) or getattr(e, 'errno', None)
+        print(f"\033[91m[ERROR] Client disconnected while sending card (error {error_code}): {e}\033[0m")
+        raise ConnectionError(f"Client connection lost: {e}") from e
     except Exception as e:
         print(f"\033[91m[ERROR] Failed to send card: {e}\033[0m")
         raise
@@ -349,8 +357,18 @@ def handle_client(client_socket: socket.socket, client_address: tuple):
                     losses += 1
                 else:
                     ties += 1
+            except ConnectionError as e:
+                # Client disconnected - stop the game gracefully
+                print(f"\033[91m[ERROR] Client disconnected during round {round_num}: {e}\033[0m")
+                print(f"\033[93m[INFO] Ending game for {client_name} due to disconnection\033[0m")
+                break
             except Exception as e:
                 print(f"\033[91m[ERROR] Round {round_num} failed: {e}\033[0m")
+                # Check if it's a connection error
+                if "connection" in str(e).lower() or "10054" in str(e) or "10053" in str(e):
+                    print(f"\033[93m[INFO] Ending game for {client_name} due to connection error\033[0m")
+                    break
+                # For other errors, continue to next round if possible
                 break
         
         # Print summary

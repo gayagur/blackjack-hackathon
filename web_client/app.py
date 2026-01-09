@@ -17,7 +17,7 @@ from protocol import (
     parse_payload_server,
     create_payload_client
 )
-from game_logic import Card, calculate_hand_value, is_bust
+from game_logic import Card, calculate_hand_value, is_bust, Deck
 from constants import (
     UDP_BROADCAST_PORT, 
     TEAM_NAME, 
@@ -319,8 +319,10 @@ class RoomState:
         self.game_status = 'lobby'  # lobby, betting, playing, dealer_turn, round_over, finished
         self.is_casino = is_casino
         self.created_at = time.time()
-        self.tcp_socket = None  # Connection to game server
+        self.tcp_socket = None  # Connection to game server (not used for multiplayer cards)
         self.tcp_lock = threading.Lock()  # Lock for TCP socket access
+        self.deck = None  # Local deck for multiplayer (created each round)
+        self.dealer_hidden_card = None  # Store hidden dealer card
         self.stats = {}  # session_id -> GameStatistics
         # Server info (selected by host during room creation)
         self.server_ip = None
@@ -361,7 +363,9 @@ class RoomState:
     def reset_for_new_round(self):
         self.dealer_hand = []
         self.dealer_value = 0
+        self.dealer_hidden_card = None
         self.current_turn_index = 0
+        self.deck = Deck()  # Fresh shuffled deck each round
         for player in self.players.values():
             player.hand = []
             player.hand_value = 0
@@ -391,7 +395,10 @@ class RoomState:
                 }
                 for sid, p in self.players.items()
             },
-            'dealer_hand': [{'rank': c.rank, 'suit': c.suit} if c else None for c in self.dealer_hand],
+            'dealer_hand': [
+                {'rank': c.rank, 'suit': c.suit} if c and (i == 0 or self.game_status in ['dealer_turn', 'round_over', 'finished']) else None 
+                for i, c in enumerate(self.dealer_hand)
+            ],
             'dealer_value': self.dealer_value,
             'current_turn': self.player_order[self.current_turn_index] if self.current_turn_index < len(self.player_order) else None,
             'player_order': self.player_order,
@@ -405,7 +412,7 @@ class RoomState:
             'server_port': self.server_port,
             'server_name': self.server_name,
             'stats': {
-                sid: stats.to_dict(MODE_MULTIPLAYER)
+                sid: stats.to_dict(MODE_CASINO if self.is_casino else MODE_MULTIPLAYER)
                 for sid, stats in self.stats.items()
             } if self.stats else {}
         }
@@ -1494,7 +1501,7 @@ def handle_player_ready(data):
 
 @socketio.on('start_multiplayer_game')
 def handle_start_multiplayer(data):
-    """Host starts the multiplayer game"""
+    """Host starts the multiplayer game - NO TCP CONNECTION NEEDED (uses local deck)"""
     from flask import request
     session_id = request.sid
     
@@ -1521,40 +1528,21 @@ def handle_start_multiplayer(data):
         emit('error', {'message': 'All players must be ready'})
         return
     
-    # Use server info from room (selected by host during room creation)
-    server_ip = room.server_ip
-    server_port = room.server_port
+    # NO TCP connection needed for multiplayer!
+    # We use local Deck instead
     
-    if not server_ip or not server_port:
-        emit('error', {'message': 'No server selected for this room'})
-        return
+    room.game_status = 'playing'
     
-    try:
-        tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        tcp_socket.settimeout(30.0)
-        tcp_socket.connect((server_ip, server_port))
-        
-        # Request game - multiply rounds by number of players
-        total_rounds = room.num_rounds * len(room.players)
-        request_packet = create_request_packet(total_rounds, TEAM_NAME)
-        tcp_socket.sendall(request_packet)
-        
-        room.tcp_socket = tcp_socket
-        room.game_status = 'playing'
-        
-        socketio.emit('multiplayer_game_started', {
-            'room_state': room.to_dict()
-        }, room=room_id)
-        
-        # Start game loop in separate thread
-        threading.Thread(
-            target=multiplayer_game_loop,
-            args=(room_id,),
-            daemon=True
-        ).start()
-        
-    except Exception as e:
-        emit('error', {'message': f'Failed to connect to server: {str(e)}'})
+    socketio.emit('multiplayer_game_started', {
+        'room_state': room.to_dict()
+    }, room=room_id)
+    
+    # Start game loop
+    threading.Thread(
+        target=multiplayer_game_loop,
+        args=(room_id,),
+        daemon=True
+    ).start()
 
 
 def multiplayer_game_loop(room_id):
@@ -1579,7 +1567,7 @@ def multiplayer_game_loop(room_id):
                 'total': room.num_rounds,
                 'room_state': room.to_dict()
             }, room=room_id)
-            time.sleep(0.3)  # REDUCED from 1.0
+            time.sleep(0.0)  # Instant - no delay
             
             # ========== CASINO MODE: COLLECT BETS ==========
             if room.is_casino:
@@ -1634,83 +1622,63 @@ def multiplayer_game_loop(room_id):
                 socketio.emit('multiplayer_all_bets_placed', {
                     'room_state': room.to_dict()
                 }, room=room_id)
-                time.sleep(0.05)  # Very fast
+                time.sleep(0.0)  # Instant - no delay
             
-            # ========== DEAL CARDS TO ALL PLAYERS ==========
+            # ========== DEAL CARDS - LOCAL DECK (NO TCP!) ==========
             room.game_status = 'dealing'
-            print(f"[MULTIPLAYER] Dealing cards to {len(room.players)} players")
+            print(f"[MULTIPLAYER] Dealing cards from LOCAL deck to {len(room.players)} players")
             
-            # Show loading indicator immediately
             socketio.emit('multiplayer_dealing_started', {
                 'room_state': room.to_dict()
             }, room=room_id)
             
-            # Deal all cards first, then notify all at once for instant display
-            # Deal 2 cards to each player (collect all cards first, NO delays)
-            # Use lock to prevent race conditions
-            with room.tcp_lock:
-                for card_num in range(2):
-                    for player_sid in room.player_order:
-                        player = room.players.get(player_sid)
-                        if not player:
-                            continue
-                        
-                        try:
-                            result, card = receive_card(room.tcp_socket)
-                            player.hand.append(card)
-                            player.hand_value = calculate_hand_value(player.hand)
-                            print(f"[MULTIPLAYER] Dealt {card.rank}/{card.suit} to {player.name}, value: {player.hand_value}")
-                            
-                        except Exception as e:
-                            print(f"[ERROR] Failed to deal card to {player.name}: {e}")
-                            socketio.emit('error', {'message': f'Error dealing cards: {str(e)}'}, room=room_id)
-                            return
+            # Deal 2 cards to each player from LOCAL deck
+            for player_sid in room.player_order:
+                player = room.players.get(player_sid)
+                if not player:
+                    continue
+                
+                # Draw from LOCAL deck - instant, no TCP!
+                card1 = room.deck.draw()
+                card2 = room.deck.draw()
+                player.hand = [card1, card2]
+                player.hand_value = calculate_hand_value(player.hand)
+                print(f"[MULTIPLAYER] Dealt {card1.rank}/{card1.suit}, {card2.rank}/{card2.suit} to {player.name}")
             
-            # Send ONE event with complete game state - all cards visible immediately
+            # Deal dealer cards from LOCAL deck
+            dealer_card1 = room.deck.draw()  # Visible
+            dealer_card2 = room.deck.draw()  # Hidden (stored but not shown)
+            room.dealer_hand = [dealer_card1, None]  # Second card hidden for now
+            room.dealer_value = dealer_card1.get_value()  # Only visible card value
+            room.dealer_hidden_card = dealer_card2  # Store for later reveal
+            print(f"[MULTIPLAYER] Dealer: {dealer_card1.rank}/{dealer_card1.suit} (hidden: {dealer_card2.rank}/{dealer_card2.suit})")
+            
+            # Send all cards at once - INSTANT!
             socketio.emit('multiplayer_all_cards_dealt', {
                 'room_state': room.to_dict()
             }, room=room_id)
             
-            # ========== DEAL DEALER CARDS ==========
-            print(f"[MULTIPLAYER] Dealing dealer cards")
-            
-            # Dealer's first card (visible) - Use lock
-            try:
-                with room.tcp_lock:
-                    result, dealer_card = receive_card(room.tcp_socket)
-                room.dealer_hand.append(dealer_card)
-                room.dealer_value = dealer_card.get_value()
-                print(f"[MULTIPLAYER] Dealer visible card: {dealer_card.rank}/{dealer_card.suit}")
-                
-            except Exception as e:
-                print(f"[ERROR] Failed to deal dealer card: {e}")
-                socketio.emit('error', {'message': f'Error dealing dealer card: {str(e)}'}, room=room_id)
-                return
-            
-            # Dealer's second card (hidden)
-            room.dealer_hand.append(None)  # Placeholder for hidden card
-            
-            # Send complete state with dealer cards - NO delays
+            # Also send dealer card event
             socketio.emit('multiplayer_dealer_cards_dealt', {
                 'room_state': room.to_dict()
             }, room=room_id)
             
-            # ========== CHECK FOR BLACKJACKS ==========
+            # Check for blackjacks
             for player_sid in room.player_order:
                 player = room.players.get(player_sid)
-                if player and player.hand_value == 21:
+                if player and player.hand_value == 21 and len(player.hand) == 2:
                     player.status = 'blackjack'
+                    print(f"[MULTIPLAYER] {player.name} has BLACKJACK!")
                     socketio.emit('multiplayer_player_blackjack', {
                         'player_id': player_sid,
                         'room_state': room.to_dict()
                     }, room=room_id)
             
-            # Send complete game state after dealing - game starts immediately
+            # Game ready - start immediately
             room.game_status = 'playing'
             socketio.emit('multiplayer_dealing_complete', {
                 'room_state': room.to_dict()
             }, room=room_id)
-            # NO delay - game starts immediately!
             
             # ========== EACH PLAYER'S TURN ==========
             room.current_turn_index = 0
@@ -1753,9 +1721,6 @@ def multiplayer_game_loop(room_id):
                         
                         if decision == 'Stand':
                             player.status = 'stand'
-                            with room.tcp_lock:
-                                send_decision(room.tcp_socket, 'Stand')
-                            
                             socketio.emit('multiplayer_player_stand', {
                                 'player_id': player_sid,
                                 'room_state': room.to_dict()
@@ -1763,11 +1728,8 @@ def multiplayer_game_loop(room_id):
                             break
                         
                         elif decision == 'Hittt':
-                            # Send decision and receive card - ALL in lock
-                            with room.tcp_lock:
-                                send_decision(room.tcp_socket, 'Hittt')
-                                result, card = receive_card(room.tcp_socket)
-                            
+                            # Draw from LOCAL deck - instant!
+                            card = room.deck.draw()
                             player.hand.append(card)
                             player.hand_value = calculate_hand_value(player.hand)
                             
@@ -1801,8 +1763,6 @@ def multiplayer_game_loop(room_id):
                         # Timeout - auto stand
                         print(f"[MULTIPLAYER] {player.name} timed out - auto stand")
                         player.status = 'stand'
-                        with room.tcp_lock:
-                            send_decision(room.tcp_socket, 'Stand')
                         socketio.emit('multiplayer_player_timeout', {
                             'player_id': player_sid,
                             'room_state': room.to_dict()
@@ -1815,47 +1775,67 @@ def multiplayer_game_loop(room_id):
                 
                 print(f"[MULTIPLAYER] {player.name} finished - status: {player.status}")
             
-            # ========== DEALER'S TURN ==========
+            # ========== DEALER'S TURN - LOCAL DECK ==========
             room.game_status = 'dealer_turn'
-            print(f"[MULTIPLAYER] Dealer's turn")
             
-            socketio.emit('multiplayer_dealer_turn', {
+            # Check if all players busted
+            all_busted = all(p.status == 'bust' for p in room.players.values())
+            
+            if all_busted:
+                print(f"[MULTIPLAYER] All players busted - skipping dealer turn")
+                # Just reveal hidden card, don't draw more
+                room.dealer_hand[1] = room.dealer_hidden_card
+                room.dealer_value = calculate_hand_value([c for c in room.dealer_hand if c])
+                
+                socketio.emit('multiplayer_dealer_reveal', {
+                    'card': {'rank': room.dealer_hidden_card.rank, 'suit': room.dealer_hidden_card.suit},
+                    'room_state': room.to_dict()
+                }, room=room_id)
+                # Wait for players to see the revealed card
+                time.sleep(3.0)
+            else:
+                # Normal dealer turn
+                socketio.emit('multiplayer_dealer_turn', {
+                    'room_state': room.to_dict()
+                }, room=room_id)
+                time.sleep(0.3)
+                
+                # Reveal hidden card
+                room.dealer_hand[1] = room.dealer_hidden_card
+                room.dealer_value = calculate_hand_value([c for c in room.dealer_hand if c])
+                
+                socketio.emit('multiplayer_dealer_reveal', {
+                    'card': {'rank': room.dealer_hidden_card.rank, 'suit': room.dealer_hidden_card.suit},
+                    'room_state': room.to_dict()
+                }, room=room_id)
+                # Wait for players to see the revealed card before dealer continues
+                time.sleep(3.0)
+                
+                # Dealer hits until 17+ (from LOCAL deck)
+                while room.dealer_value < 17:
+                    card = room.deck.draw()
+                    room.dealer_hand.append(card)
+                    room.dealer_value = calculate_hand_value([c for c in room.dealer_hand if c])
+                    
+                    print(f"[MULTIPLAYER] Dealer hit: {card.rank}/{card.suit}, value: {room.dealer_value}")
+                    
+                    socketio.emit('multiplayer_dealer_hit', {
+                        'card': {'rank': card.rank, 'suit': card.suit},
+                        'dealer_value': room.dealer_value,
+                        'room_state': room.to_dict()
+                    }, room=room_id)
+                    time.sleep(0.3)
+            
+            # Send dealer's final hand to all players
+            socketio.emit('multiplayer_dealer_done', {
+                'dealer_hand': [{'rank': c.rank, 'suit': c.suit} if c else None for c in room.dealer_hand],
+                'dealer_value': room.dealer_value,
                 'room_state': room.to_dict()
             }, room=room_id)
-            time.sleep(0.1)  # Very short delay
             
-            # Receive dealer's remaining cards - Use lock
-            while True:
-                try:
-                    with room.tcp_lock:
-                        result, card = receive_card(room.tcp_socket)
-                    
-                    if result == RESULT_NOT_OVER:
-                        # Add card to dealer hand
-                        if len(room.dealer_hand) >= 2 and room.dealer_hand[1] is None:
-                            room.dealer_hand[1] = card  # Reveal hidden card
-                            socketio.emit('multiplayer_dealer_reveal', {
-                                'card': {'rank': card.rank, 'suit': card.suit},
-                                'room_state': room.to_dict()
-                            }, room=room_id)
-                        else:
-                            room.dealer_hand.append(card)
-                            socketio.emit('multiplayer_dealer_hit', {
-                                'card': {'rank': card.rank, 'suit': card.suit},
-                                'room_state': room.to_dict()
-                            }, room=room_id)
-                        
-                        room.dealer_value = calculate_hand_value([c for c in room.dealer_hand if c])
-                        print(f"[MULTIPLAYER] Dealer card: {card.rank}/{card.suit}, value: {room.dealer_value}")
-                        time.sleep(0.05)  # Very fast
-                    else:
-                        # Game over for this round
-                        print(f"[MULTIPLAYER] Dealer finished, result code: {result}")
-                        break
-                        
-                except Exception as e:
-                    print(f"[ERROR] Error receiving dealer card: {e}")
-                    break
+            # Wait 3 seconds so players can see the dealer's cards
+            print(f"[MULTIPLAYER] Waiting 3 seconds for players to see dealer cards...")
+            time.sleep(3)
             
             # ========== CALCULATE RESULTS ==========
             room.game_status = 'round_over'
@@ -1911,7 +1891,7 @@ def multiplayer_game_loop(room_id):
             }, room=room_id)
             
             print(f"[MULTIPLAYER] ========== ROUND {round_num} COMPLETE ==========")
-            time.sleep(1.5)  # REDUCED from 3.0 - still need time to see results
+            time.sleep(5.0)  # Give more time to see results (win/loss display)
         
         # ========== GAME FINISHED ==========
         room.game_status = 'finished'
@@ -1920,27 +1900,108 @@ def multiplayer_game_loop(room_id):
         # Prepare final stats for all players
         final_stats = {}
         for sid, stats in room.stats.items():
-            final_stats[sid] = stats.to_dict(MODE_MULTIPLAYER)
+            try:
+                # Use MODE_CASINO if room is casino mode, otherwise MODE_MULTIPLAYER
+                final_stats[sid] = stats.to_dict(MODE_CASINO if room.is_casino else MODE_MULTIPLAYER)
+            except Exception as e:
+                print(f"[ERROR] Failed to get stats for {sid}: {e}")
+                final_stats[sid] = {
+                    'rounds_played': 0,
+                    'wins': 0,
+                    'losses': 0,
+                    'ties': 0,
+                    'win_rate': 0,
+                    'blackjacks': 0,
+                    'busts': 0,
+                    'avg_hand': 0
+                }
         
-        # Determine winner(s)
-        if room.is_casino:
-            # Winner is player with most chips
-            winner_sid = max(room.players.keys(), key=lambda sid: room.players[sid].chips)
-            winner = room.players[winner_sid]
-        else:
-            # Winner is player with most wins
-            winner_sid = max(room.stats.keys(), key=lambda sid: room.stats[sid].wins)
-            winner = room.players.get(winner_sid)
+        # Determine winner - ROBUST VERSION
+        winner_sid = None
+        winner_name = 'Unknown'
+        winner_character = 'gaya'
         
-        socketio.emit('multiplayer_game_finished', {
+        try:
+            if room.is_casino:
+                # Casino: Winner is player with most chips
+                if room.players:
+                    winner_sid = max(room.players.keys(), key=lambda sid: room.players[sid].chips)
+            else:
+                # Classic: Winner is player with most wins
+                if room.stats:
+                    winner_sid = max(room.stats.keys(), key=lambda sid: room.stats[sid].wins)
+            
+            # Get winner info
+            if winner_sid and winner_sid in room.players:
+                winner = room.players[winner_sid]
+                winner_name = winner.name
+                winner_character = winner.character
+            elif room.players:
+                # Fallback: first player
+                winner_sid = list(room.players.keys())[0]
+                winner = room.players[winner_sid]
+                winner_name = winner.name
+                winner_character = winner.character
+                
+        except Exception as e:
+            print(f"[ERROR] Failed to determine winner: {e}")
+            # Use first player as fallback
+            if room.players:
+                winner_sid = list(room.players.keys())[0]
+                winner = room.players[winner_sid]
+                winner_name = winner.name
+                winner_character = winner.character
+        
+        print(f"[MULTIPLAYER] Winner: {winner_name} (sid: {winner_sid})")
+        print(f"[MULTIPLAYER] Final stats: {final_stats}")
+        
+        # Send game finished event
+        finished_data = {
             'stats': final_stats,
             'winner': {
-                'id': winner_sid,
-                'name': winner.name if winner else 'Unknown',
-                'character': winner.character if winner else 'gaya'
+                'id': winner_sid or '',
+                'name': winner_name,
+                'character': winner_character
             },
             'room_state': room.to_dict()
+        }
+        
+        print(f"[MULTIPLAYER] GAME FINISHED -> emitting finish events to room {room_id}, players={len(room.players)}")
+        
+        # Broadcast to room as you already do
+        socketio.emit('multiplayer_game_finished', finished_data, room=room_id)
+        time.sleep(0.2)
+        socketio.emit('multiplayer_game_finished', finished_data, room=room_id)
+        
+        # Backward-compatible finish events (single-player UI likely listens to these)
+        socketio.emit('game_finished', {
+            'stats': finished_data['stats'],
+            'game_mode': MODE_MULTIPLAYER,
+            'total_rounds': room.num_rounds,
+            'show_stats': True,
+            'broke': False,
+            'winner': finished_data['winner'],
+            'room_state': finished_data['room_state']
         }, room=room_id)
+        
+        time.sleep(0.2)
+        socketio.emit('show_final_stats', finished_data['stats'], room=room_id)
+        
+        # Fallback: emit directly to each player SID in case their socket is not joined to room_id
+        for sid in list(room.players.keys()):
+            socketio.emit('multiplayer_game_finished', finished_data, room=sid)
+            socketio.emit('game_finished', {
+                'stats': finished_data['stats'],
+                'game_mode': MODE_MULTIPLAYER,
+                'total_rounds': room.num_rounds,
+                'show_stats': True,
+                'broke': False,
+                'winner': finished_data['winner'],
+                'room_state': finished_data['room_state']
+            }, room=sid)
+            socketio.emit('show_final_stats', finished_data['stats'], room=sid)
+        
+        print(f"[MULTIPLAYER] Game finished event sent!")
         
     except Exception as e:
         print(f"[ERROR] Multiplayer game error: {e}")
@@ -1948,8 +2009,14 @@ def multiplayer_game_loop(room_id):
         traceback.print_exc()
         socketio.emit('error', {'message': f'Game error: {str(e)}'}, room=room_id)
     finally:
-        # Cleanup
+        # Cleanup - ensure all emits are done before closing socket
+        # All finish events are emitted above, so safe to close now
         if room and room.tcp_socket:
+            try:
+                # Don't hold lock while closing - emits already done
+                room.tcp_socket.shutdown(socket.SHUT_RDWR)
+            except:
+                pass
             try:
                 room.tcp_socket.close()
             except:
