@@ -2866,13 +2866,74 @@ function showMultiplayerFinalStats(allStats, winner, roomState) {
             const isWinner = sid === winner?.id;
             const isMe = sid === myPlayerId;
             
+            // Extract all stats
             const wins = stats?.wins || 0;
             const losses = stats?.losses || 0;
             const ties = stats?.ties || 0;
+            const roundsPlayed = stats?.rounds_played || 0;
             const winRate = stats?.win_rate || 0;
             const blackjacks = stats?.blackjacks || 0;
             const busts = stats?.busts || 0;
-            const chips = player?.chips || 0;
+            const perfect21s = stats?.perfect_21s || 0;
+            const avgHand = stats?.avg_hand || 0;
+            const longestWinStreak = stats?.longest_win_streak || 0;
+            const longestLoseStreak = stats?.longest_lose_streak || 0;
+            const totalHits = stats?.total_hits || 0;
+            const totalStands = stats?.total_stands || 0;
+            const dealerBusts = stats?.dealer_busts || 0;
+            const timesBeatDealer = stats?.times_beat_dealer || 0;
+            
+            // Casino mode stats
+            const isCasino = roomState?.is_casino;
+            const chips = isCasino ? (stats?.current_chips || player?.chips || 0) : 0;
+            const startingChips = isCasino ? (stats?.starting_chips || 0) : 0;
+            const totalWon = isCasino ? (stats?.total_won || 0) : 0;
+            const totalLost = isCasino ? (stats?.total_lost || 0) : 0;
+            const profit = isCasino ? (stats?.profit || 0) : 0;
+            const roi = isCasino ? (stats?.roi || 0) : 0;
+            const biggestWin = isCasino ? (stats?.biggest_win || 0) : 0;
+            const biggestLoss = isCasino ? (stats?.biggest_loss || 0) : 0;
+            
+            // Build detailed stats HTML
+            let detailedStatsHTML = '';
+            
+            if (isCasino) {
+                // Casino mode - show financial stats
+                detailedStatsHTML = `
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.2);">
+                        <div style="font-size: 0.85em; margin-bottom: 8px;"><strong>💰 Financial Stats</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Starting: <strong>$${startingChips.toLocaleString()}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0; color: #4ade80;">Current: <strong>$${chips.toLocaleString()}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0; color: #4ade80;">Total Won: <strong>$${totalWon.toLocaleString()}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0; color: #f87171;">Total Lost: <strong>$${totalLost.toLocaleString()}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0; color: ${profit >= 0 ? '#4ade80' : '#f87171'};">
+                            Profit: <strong>$${profit >= 0 ? '+' : ''}${profit.toLocaleString()}</strong>
+                        </div>
+                        <div style="font-size: 0.8em; margin: 3px 0; color: ${roi >= 0 ? '#4ade80' : '#f87171'};">
+                            ROI: <strong>${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%</strong>
+                        </div>
+                        ${biggestWin > 0 ? `<div style="font-size: 0.8em; margin: 3px 0; color: #4ade80;">Biggest Win: <strong>$${biggestWin.toLocaleString()}</strong></div>` : ''}
+                        ${biggestLoss > 0 ? `<div style="font-size: 0.8em; margin: 3px 0; color: #f87171;">Biggest Loss: <strong>$${biggestLoss.toLocaleString()}</strong></div>` : ''}
+                    </div>
+                `;
+            } else {
+                // Classic mode - show game stats
+                detailedStatsHTML = `
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.2);">
+                        <div style="font-size: 0.85em; margin-bottom: 8px;"><strong>📊 Game Stats</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Rounds: <strong>${roundsPlayed}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Avg Hand: <strong>${avgHand.toFixed(1)}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Blackjacks: <strong>${blackjacks}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Perfect 21s: <strong>${perfect21s}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Busts: <strong>${busts}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Best Streak: <strong>${longestWinStreak}</strong> wins</div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Worst Streak: <strong>${longestLoseStreak}</strong> losses</div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Hits: <strong>${totalHits}</strong> | Stands: <strong>${totalStands}</strong></div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Beat Dealer: <strong>${timesBeatDealer}</strong> times</div>
+                        <div style="font-size: 0.8em; margin: 3px 0;">Dealer Busts: <strong>${dealerBusts}</strong></div>
+                    </div>
+                `;
+            }
             
             playersHTML += `
                 <div style="
@@ -2880,7 +2941,8 @@ function showMultiplayerFinalStats(allStats, winner, roomState) {
                     border-radius: 15px;
                     padding: 20px;
                     margin: 10px;
-                    min-width: 200px;
+                    min-width: 250px;
+                    max-width: 300px;
                     text-align: center;
                     color: white;
                     ${isWinner ? 'box-shadow: 0 0 30px rgba(255,215,0,0.5);' : ''}
@@ -2908,10 +2970,9 @@ function showMultiplayerFinalStats(allStats, winner, roomState) {
                         </div>
                     </div>
                     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.2);">
-                        <div style="font-size: 0.9em;">Win Rate: <strong>${winRate.toFixed(1)}%</strong></div>
-                        <div style="font-size: 0.9em;">Blackjacks: <strong>${blackjacks}</strong></div>
-                        ${roomState?.is_casino ? `<div style="font-size: 0.9em; color: #4ade80;">Chips: <strong>$${chips.toLocaleString()}</strong></div>` : ''}
+                        <div style="font-size: 0.9em; margin-bottom: 5px;">Win Rate: <strong>${winRate.toFixed(1)}%</strong></div>
                     </div>
+                    ${detailedStatsHTML}
                 </div>
             `;
         }
