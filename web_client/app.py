@@ -300,7 +300,8 @@ class PlayerState:
         self.current_bet = 0
         self.bet_placed = False  # Track if bet has been placed
         self.is_ready = False
-        self.pending_decision = None  # Store decision from handler (Hit/Stand)
+        self.pending_decision = None  # Store decision from handler (Hit/Stand/DoubleDown)
+        self.doubled = False  # Track if player doubled down this round
 
 
 class RoomState:
@@ -375,6 +376,7 @@ class RoomState:
             player.current_bet = 0
             player.bet_placed = False
             player.pending_decision = None  # Reset pending decision
+            player.doubled = False  # Reset doubled flag
     
     def to_dict(self):
         """Convert room state to dictionary for sending to clients"""
@@ -983,9 +985,21 @@ def play_game_loop(session_id, tcp_socket, num_rounds, game_mode):
                             'dealer_hidden': True
                         }, room=session_id)
                         
-                        # Double down = one card then stand
-                        if decision == "DoubleDown":
+                        # Check if player busted or game ended
+                        if result != RESULT_NOT_OVER or player_value > 21:
+                            if player_value > 21:
+                                player_busted = True
+                                socketio.emit('bust', {'player_value': player_value}, room=session_id)
+                            # If result is not RESULT_NOT_OVER, server already ended the round
+                            # Don't send Stand for DoubleDown if we already lost
+                            if decision == "DoubleDown" and result != RESULT_NOT_OVER:
+                                print(f"[DEBUG] DoubleDown: Player busted or lost, result={result}, not sending Stand")
+                                break
+                        
+                        # Double down = one card then stand (only if game is still ongoing)
+                        if decision == "DoubleDown" and result == RESULT_NOT_OVER and player_value <= 21:
                             try:
+                                print(f"[DEBUG] DoubleDown: Sending Stand to server")
                                 send_decision(tcp_socket, "Stand")
                             except (ConnectionError, ConnectionResetError, ConnectionAbortedError, OSError, BrokenPipeError, Exception) as e:
                                 print(f"[ERROR] Failed to send double down stand: {e}")
@@ -1093,9 +1107,22 @@ def play_game_loop(session_id, tcp_socket, num_rounds, game_mode):
                     active_games[session_id]['dealer_hand'] = dealer_hand
                     # No delay - process immediately
                 else:
-                    # Final result
+                    # Final result - dealer finished
                     dealer_value = calculate_hand_value([c for c in dealer_hand if c])
                     player_value = calculate_hand_value(my_hand)
+                    
+                    # Send final dealer hand state so player can see it
+                    socketio.emit('game_state', {
+                        'player_hand': [{'rank': c.rank, 'suit': c.suit} for c in my_hand],
+                        'dealer_hand': [{'rank': c.rank, 'suit': c.suit} for c in dealer_hand],
+                        'player_value': player_value,
+                        'dealer_value': dealer_value,
+                        'dealer_hidden': False
+                    }, room=session_id)
+                    
+                    # Wait 3 seconds so player can see dealer's final hand
+                    print(f"[DEBUG] Waiting 3 seconds for player to see dealer's final hand...")
+                    time.sleep(3.0)
                     
                     if result == RESULT_WIN:
                         result_text = 'win'
@@ -1153,6 +1180,10 @@ def play_game_loop(session_id, tcp_socket, num_rounds, game_mode):
         if session_id not in active_games:
             print(f"[WARNING] Session {session_id} not in active_games at game finish")
             return
+        
+        # Wait 3 seconds so player can see the final dealer hand before showing stats
+        print(f"[DEBUG] Waiting 3 seconds before showing final stats...")
+        time.sleep(3.0)
         
         final_stats = stats.to_dict(game_mode)
         print(f"[DEBUG] Final stats: {final_stats}")
@@ -1702,9 +1733,17 @@ def multiplayer_game_loop(room_id):
                 
                 # Notify whose turn
                 print(f"[MULTIPLAYER] {player.name}'s turn")
+                
+                # Check if player can double down (only on first decision, in casino mode, with enough chips)
+                can_double = (room.is_casino and 
+                             len(player.hand) == 2 and 
+                             player.chips >= player.current_bet and 
+                             DOUBLE_DOWN_ENABLED)
+                
                 socketio.emit('multiplayer_player_turn', {
                     'player_id': player_sid,
                     'player_name': player.name,
+                    'can_double': can_double,
                     'room_state': room.to_dict()
                 }, room=room_id)
                 
@@ -1725,6 +1764,51 @@ def multiplayer_game_loop(room_id):
                                 'player_id': player_sid,
                                 'room_state': room.to_dict()
                             }, room=room_id)
+                            break
+                        
+                        elif decision == 'DoubleDown':
+                            # Double Down: Hit once, then auto-stand
+                            print(f"[MULTIPLAYER] {player.name} double down - drawing one card")
+                            
+                            # Draw one card from LOCAL deck
+                            card = room.deck.draw()
+                            player.hand.append(card)
+                            player.hand_value = calculate_hand_value(player.hand)
+                            
+                            print(f"[MULTIPLAYER] {player.name} double down card: {card.rank}/{card.suit}, value: {player.hand_value}")
+                            
+                            # Emit the card
+                            socketio.emit('multiplayer_player_hit', {
+                                'player_id': player_sid,
+                                'card': {'rank': card.rank, 'suit': card.suit},
+                                'hand_value': player.hand_value,
+                                'room_state': room.to_dict()
+                            }, room=room_id)
+                            
+                            # Check if busted
+                            if player.hand_value > 21:
+                                player.status = 'bust'
+                                print(f"[MULTIPLAYER] {player.name} busted after double down!")
+                                socketio.emit('multiplayer_player_bust', {
+                                    'player_id': player_sid,
+                                    'card': {'rank': card.rank, 'suit': card.suit},
+                                    'hand_value': player.hand_value,
+                                    'room_state': room.to_dict()
+                                }, room=room_id)
+                            else:
+                                # Auto-stand after double down
+                                player.status = 'stand'
+                                print(f"[MULTIPLAYER] {player.name} stood after double down!")
+                                socketio.emit('multiplayer_player_stand', {
+                                    'player_id': player_sid,
+                                    'room_state': room.to_dict()
+                                }, room=room_id)
+                            
+                            # Double down is complete - exit the loop immediately
+                            print(f"[MULTIPLAYER] Exiting turn loop for {player.name} after double down, status: {player.status}")
+                            # Force exit by ensuring status is not 'playing'
+                            if player.status == 'playing':
+                                player.status = 'stand'  # Fallback
                             break
                         
                         elif decision == 'Hittt':
@@ -1776,6 +1860,7 @@ def multiplayer_game_loop(room_id):
                 print(f"[MULTIPLAYER] {player.name} finished - status: {player.status}")
             
             # ========== DEALER'S TURN - LOCAL DECK ==========
+            print(f"[MULTIPLAYER] All players finished, starting dealer turn...")
             room.game_status = 'dealer_turn'
             
             # Check if all players busted
@@ -1791,7 +1876,16 @@ def multiplayer_game_loop(room_id):
                     'card': {'rank': room.dealer_hidden_card.rank, 'suit': room.dealer_hidden_card.suit},
                     'room_state': room.to_dict()
                 }, room=room_id)
+                
+                # Send dealer's final hand even if all busted
+                socketio.emit('multiplayer_dealer_done', {
+                    'dealer_hand': [{'rank': c.rank, 'suit': c.suit} if c else None for c in room.dealer_hand],
+                    'dealer_value': room.dealer_value,
+                    'room_state': room.to_dict()
+                }, room=room_id)
+                
                 # Wait for players to see the revealed card
+                print(f"[MULTIPLAYER] Waiting 3 seconds for players to see dealer's final hand (all busted)...")
                 time.sleep(3.0)
             else:
                 # Normal dealer turn
@@ -1833,16 +1927,18 @@ def multiplayer_game_loop(room_id):
                 'room_state': room.to_dict()
             }, room=room_id)
             
-            # Wait 3 seconds so players can see the dealer's cards
-            print(f"[MULTIPLAYER] Waiting 3 seconds for players to see dealer cards...")
-            time.sleep(3)
+            # Wait 3 seconds so players can see the dealer's final cards
+            print(f"[MULTIPLAYER] Waiting 3 seconds for players to see dealer's final hand...")
+            time.sleep(3.0)
             
             # ========== CALCULATE RESULTS ==========
+            print(f"[MULTIPLAYER] Starting to calculate results...")
             room.game_status = 'round_over'
             dealer_final = calculate_hand_value([c for c in room.dealer_hand if c])
             dealer_busted = dealer_final > 21
             
             print(f"[MULTIPLAYER] Calculating results - Dealer: {dealer_final}, Busted: {dealer_busted}")
+            print(f"[MULTIPLAYER] Player statuses: {[(sid, p.name, p.status, p.hand_value, p.doubled) for sid, p in room.players.items()]}")
             
             for player_sid in room.player_order:
                 player = room.players.get(player_sid)
@@ -1880,18 +1976,29 @@ def multiplayer_game_loop(room_id):
                 result_code = RESULT_WIN if player.result == 'win' else (RESULT_LOSS if player.result == 'loss' else RESULT_TIE)
                 room.stats[player.session_id].update_after_round(
                     result_code, player.hand, room.dealer_hand,
-                    player.current_bet if room.is_casino else 0
+                    player.current_bet if room.is_casino else 0,
+                    doubled=player.doubled
                 )
             
             # Send round results
+            print(f"[MULTIPLAYER] Sending round results to all players...")
             socketio.emit('multiplayer_round_results', {
                 'dealer_value': dealer_final,
                 'dealer_busted': dealer_busted,
                 'room_state': room.to_dict()
             }, room=room_id)
             
+            # Wait 3 seconds so players can see the round results banner before next round
+            print(f"[MULTIPLAYER] Waiting 3 seconds for players to see round results...")
+            time.sleep(3.0)
+            
             print(f"[MULTIPLAYER] ========== ROUND {round_num} COMPLETE ==========")
-            time.sleep(5.0)  # Give more time to see results (win/loss display)
+            
+            # Check if we should continue to next round
+            if round_num < room.num_rounds:
+                print(f"[MULTIPLAYER] Continuing to next round ({round_num + 1}/{room.num_rounds})...")
+            else:
+                print(f"[MULTIPLAYER] All rounds complete, ending game...")
         
         # ========== GAME FINISHED ==========
         room.game_status = 'finished'
@@ -2055,6 +2162,34 @@ def handle_multiplayer_decision(data):
     
     decision = data.get('decision')
     print(f"[MULTIPLAYER] {player.name} decision received: {decision}")
+    
+    # Handle DoubleDown in casino mode
+    if decision == 'DoubleDown':
+        if not room.is_casino:
+            emit('error', {'message': 'Double Down only available in casino mode'})
+            return
+        
+        if player.chips < player.current_bet:
+            emit('error', {'message': 'Not enough chips to double down'})
+            return
+        
+        # Double the bet
+        player.chips -= player.current_bet  # Deduct additional bet
+        player.current_bet *= 2
+        player.doubled = True  # Mark as doubled
+        
+        # Store as 'DoubleDown' - game loop will handle it as Hit + Stand
+        player.pending_decision = 'DoubleDown'
+        print(f"[MULTIPLAYER] {player.name} doubled down! New bet: {player.current_bet}, chips: {player.chips}")
+        
+        # Emit bet update
+        socketio.emit('multiplayer_player_bet', {
+            'player_id': session_id,
+            'bet': player.current_bet,
+            'chips': player.chips,
+            'room_state': room.to_dict()
+        }, room=room_id)
+        return
     
     # FIX: Only store decision, don't read from TCP here
     # The multiplayer_game_loop will process it and read the card

@@ -4533,6 +4533,32 @@ body {
         0 3px 0 #b91c1c,
         0 5px 15px rgba(239, 68, 68, 0.4);
 }
+/* DOUBLE DOWN Button */
+.double-btn {
+    background: linear-gradient(145deg, #fbbf24, #f59e0b);
+    color: #fff;
+    box-shadow: 
+        0 6px 0 #d97706,
+        0 8px 20px rgba(251, 191, 36, 0.4);
+}
+
+.double-btn .btn-glow {
+    background: radial-gradient(circle at center, rgba(255,255,255,0.3) 0%, transparent 70%);
+}
+
+.double-btn:hover {
+    transform: translateY(-4px);
+    box-shadow: 
+        0 10px 0 #d97706,
+        0 15px 30px rgba(251, 191, 36, 0.5);
+}
+
+.double-btn:active {
+    transform: translateY(2px);
+    box-shadow: 
+        0 3px 0 #d97706,
+        0 5px 15px rgba(251, 191, 36, 0.4);
+}
 
 /* Disabled state when not your turn */
 .mp-action-btn:disabled {
@@ -4982,4 +5008,3 @@ body {
     font-size: 1.2em;
     text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
 }
-

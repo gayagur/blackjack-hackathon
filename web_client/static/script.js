@@ -2245,6 +2245,15 @@ function mpStand() {
     socket.emit('multiplayer_decision', { decision: 'Stand' });
 }
 
+function mpDoubleDown() {
+    const controls = document.getElementById('mp-controls');
+    if (controls) {
+        controls.querySelectorAll('.mp-action-btn').forEach(btn => btn.disabled = true);
+    }
+    
+    socket.emit('multiplayer_decision', { decision: 'DoubleDown' });
+}
+
 // ====================
 // MULTIPLAYER BETTING
 // ====================
@@ -2671,6 +2680,24 @@ socket.on('multiplayer_player_turn', (data) => {
     
     if (data.player_id === myPlayerId) {
         showMessage("It's your turn!", 'info');
+        
+        // Show/hide double down button
+        const doubleBtn = document.getElementById('mp-double-btn');
+        if (doubleBtn) {
+            if (data.can_double) {
+                doubleBtn.style.display = 'flex';
+            } else {
+                doubleBtn.style.display = 'none';
+            }
+        }
+        
+        // Show controls
+        const controls = document.getElementById('mp-controls');
+        if (controls) {
+            controls.style.display = 'flex';
+            // Re-enable buttons
+            controls.querySelectorAll('.mp-action-btn').forEach(btn => btn.disabled = false);
+        }
     }
 });
 
